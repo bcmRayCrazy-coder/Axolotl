@@ -9,8 +9,9 @@ use crate::state::{
     CacheValue, CachedEntry, CachedFile, CachedFileHash, CachedFileUpdate,
     Credentials, DefaultPage, DependencyType, DeviceToken, DeviceTokenKey,
     DeviceTokenPair, FileType, Hooks, InstanceInstallStage,
-    LauncherFeatureVersion, MemorySettings, ModrinthCredentials,
-    ReleaseChannel, TeamMember, Theme, VersionFile, WindowSize,
+    LauncherFeatureVersion, MemorySettings, MinecraftAccountType,
+    ModrinthCredentials, ReleaseChannel, TeamMember, Theme, VersionFile,
+    WindowSize,
 };
 use crate::util::fetch::{IoSemaphore, read_json};
 use chrono::{DateTime, Utc};
@@ -128,6 +129,7 @@ where
                         name: legacy_credentials.username,
                         ..MinecraftProfile::default()
                     },
+                    account_type: MinecraftAccountType::Microsoft,
                     access_token: legacy_credentials.access_token,
                     refresh_token: legacy_credentials.refresh_token,
                     expires: legacy_credentials.expires,

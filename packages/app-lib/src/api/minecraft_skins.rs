@@ -22,8 +22,10 @@
 //!
 //! ## Ownership
 //!
-//! Mojang decides which skin and cape are currently equipped. The local database
-//! stores saved skin rows. A saved skin is the same saved skin when its
+//! Mojang decides which skin and cape are currently equipped for Microsoft
+//! accounts. For offline accounts, the local database stores the selected skin
+//! and the launcher applies it through an instance resource pack. The local
+//! database also stores saved skin rows. A saved skin is the same saved skin when its
 //! `texture_key` matches; changing its model variant or cape updates that saved
 //! skin instead of creating another row.
 //! When a refreshed Mojang profile reports the same texture as a saved skin but
@@ -66,7 +68,8 @@ use crate::{
     state::{
         MinecraftCharacterExpressionState, MinecraftProfile,
         minecraft_skins::{
-            CustomMinecraftSkin, CustomMinecraftSkinInsertPosition, mojang_api,
+            CustomMinecraftSkin, CustomMinecraftSkinInsertPosition,
+            OfflineMinecraftSkin, mojang_api,
         },
     },
 };
@@ -80,6 +83,12 @@ mod assets {
     }
     pub use default::DEFAULT_SKINS;
 }
+
+mod offline;
+pub(crate) use offline::{
+    OFFLINE_SKIN_PACK_LEGACY_ID, OFFLINE_SKIN_PACK_MODERN_ID,
+    OfflineSkinPackOptions, prepare_offline_skin_resource_pack,
+};
 
 mod png_util;
 
@@ -316,6 +325,11 @@ pub async fn get_available_skins() -> crate::Result<Vec<Skin>> {
         .map_or(selected_credentials.offline_profile.id, |profile| {
             profile.id
         });
+    let offline_skin = if selected_credentials.is_offline() {
+        OfflineMinecraftSkin::get(profile_id, &state.pool).await?
+    } else {
+        None
+    };
 
     let current_skin = online_profile
         .as_ref()
@@ -334,40 +348,54 @@ pub async fn get_available_skins() -> crate::Result<Vec<Skin>> {
         .and_then(PendingEffectiveSkinChange::skin);
 
     let fallback_default_skin = get_fallback_default_skin()?;
-    let current_skin_texture_key = pending_skin.as_ref().map_or_else(
+    let current_skin_texture_key = offline_skin.as_ref().map_or_else(
         || {
-            if pending_unequip {
-                Arc::clone(&fallback_default_skin.texture_key)
-            } else if let Some(current_skin) = current_skin {
-                current_skin.texture_key()
-            } else {
-                Arc::clone(&fallback_default_skin.texture_key)
-            }
+            pending_skin.as_ref().map_or_else(
+                || {
+                    if pending_unequip {
+                        Arc::clone(&fallback_default_skin.texture_key)
+                    } else if let Some(current_skin) = current_skin {
+                        current_skin.texture_key()
+                    } else {
+                        Arc::clone(&fallback_default_skin.texture_key)
+                    }
+                },
+                |skin| skin.texture_key.clone(),
+            )
         },
-        |skin| skin.texture_key.clone(),
+        |skin| Arc::from(skin.texture_key.as_str()),
     );
-    let current_skin_variant = pending_skin.as_ref().map_or_else(
+    let current_skin_variant = offline_skin.as_ref().map_or_else(
         || {
-            if pending_unequip {
-                fallback_default_skin.variant
-            } else if let Some(current_skin) = current_skin {
-                current_skin.variant
-            } else {
-                fallback_default_skin.variant
-            }
+            pending_skin.as_ref().map_or_else(
+                || {
+                    if pending_unequip {
+                        fallback_default_skin.variant
+                    } else if let Some(current_skin) = current_skin {
+                        current_skin.variant
+                    } else {
+                        fallback_default_skin.variant
+                    }
+                },
+                |skin| skin.variant,
+            )
         },
         |skin| skin.variant,
     );
-    let current_cape_id = pending_skin.as_ref().map_or(
-        if pending_unequip {
-            None
-        } else if current_skin.is_some() {
-            current_cape_id
-        } else {
-            None
-        },
-        |skin| skin.cape_id,
-    );
+    let current_cape_id = if offline_skin.is_some() {
+        None
+    } else {
+        pending_skin.as_ref().map_or(
+            if pending_unequip {
+                None
+            } else if current_skin.is_some() {
+                current_cape_id
+            } else {
+                None
+            },
+            |skin| skin.cape_id,
+        )
+    };
     let mut found_equipped_skin = false;
     let mut available_skins = Vec::new();
     let mut custom_skins = Vec::new();
@@ -527,7 +555,11 @@ pub async fn add_and_equip_custom_skin(
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
-    let cape_id = cape.map(|cape| cape.id);
+    let cape_id = if selected_credentials.is_offline() {
+        None
+    } else {
+        cape.map(|cape| cape.id)
+    };
     let local_texture_key = local_skin_texture_key(&texture_blob);
 
     CustomMinecraftSkin::add(
@@ -541,14 +573,24 @@ pub async fn add_and_equip_custom_skin(
     )
     .await?;
 
-    set_pending_skin_change(PendingSkinChange::AddAndEquipCustom {
-        selected_credentials,
-        texture_blob: Bytes::clone(&texture_blob),
-        variant,
-        cape_id,
-        local_texture_key: Arc::clone(&local_texture_key),
-    })
-    .await;
+    if selected_credentials.is_offline() {
+        OfflineMinecraftSkin::set(
+            selected_credentials.offline_profile.id,
+            &local_texture_key,
+            variant,
+            &state.pool,
+        )
+        .await?;
+    } else {
+        set_pending_skin_change(PendingSkinChange::AddAndEquipCustom {
+            selected_credentials,
+            texture_blob: Bytes::clone(&texture_blob),
+            variant,
+            cape_id,
+            local_texture_key: Arc::clone(&local_texture_key),
+        })
+        .await;
+    }
 
     Ok(Skin {
         texture_key: local_texture_key,
@@ -685,13 +727,53 @@ pub async fn equip_skin(skin: Skin) -> crate::Result<()> {
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
 
-    set_pending_skin_change(PendingSkinChange::Equip {
-        selected_credentials,
-        skin,
-    })
-    .await;
+    if selected_credentials.is_offline() {
+        equip_offline_skin_now(&state, &selected_credentials, &skin).await?;
+    } else {
+        set_pending_skin_change(PendingSkinChange::Equip {
+            selected_credentials,
+            skin,
+        })
+        .await;
+    }
 
     Ok(())
+}
+
+async fn equip_offline_skin_now(
+    state: &State,
+    selected_credentials: &Credentials,
+    skin: &Skin,
+) -> crate::Result<()> {
+    let texture_blob = png_util::url_to_data_stream(&skin.texture)
+        .await?
+        .try_fold(Vec::new(), |mut texture, chunk| async move {
+            texture.extend_from_slice(&chunk);
+            Ok(texture)
+        })
+        .await?;
+    let (skin_width, skin_height) = png_util::dimensions(&texture_blob)?;
+    if skin_width != 64 || ![32, 64].contains(&skin_height) {
+        return Err(ErrorKind::InvalidSkinTexture)?;
+    }
+
+    CustomMinecraftSkin::add(
+        selected_credentials.offline_profile.id,
+        &skin.texture_key,
+        &texture_blob,
+        skin.variant,
+        None,
+        CustomMinecraftSkinInsertPosition::Bottom,
+        &state.pool,
+    )
+    .await?;
+    OfflineMinecraftSkin::set(
+        selected_credentials.offline_profile.id,
+        &skin.texture_key,
+        skin.variant,
+        &state.pool,
+    )
+    .await
 }
 
 async fn equip_skin_now(
@@ -832,6 +914,15 @@ pub async fn remove_custom_skin(skin: Skin) -> crate::Result<()> {
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
 
+    if selected_credentials.is_offline() {
+        OfflineMinecraftSkin::clear_if_texture(
+            selected_credentials.offline_profile.id,
+            &skin.texture_key,
+            &state.pool,
+        )
+        .await?;
+    }
+
     CustomMinecraftSkin {
         texture_key: skin.texture_key.to_string(),
         variant: skin.variant,
@@ -898,7 +989,11 @@ pub async fn save_custom_skin(
     } else {
         Arc::clone(&skin.texture_key)
     };
-    let cape_id = cape.map(|cape| cape.id);
+    let cape_id = if selected_credentials.is_offline() {
+        None
+    } else {
+        cape.map(|cape| cape.id)
+    };
     let insert_position = if replace_texture && old_texture_key != texture_key {
         CustomMinecraftSkin::get_by_texture(
             selected_credentials.offline_profile.id,
@@ -969,10 +1064,18 @@ pub async fn unequip_skin() -> crate::Result<()> {
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
 
-    set_pending_skin_change(PendingSkinChange::Unequip {
-        selected_credentials,
-    })
-    .await;
+    if selected_credentials.is_offline() {
+        OfflineMinecraftSkin::clear(
+            selected_credentials.offline_profile.id,
+            &state.pool,
+        )
+        .await?;
+    } else {
+        set_pending_skin_change(PendingSkinChange::Unequip {
+            selected_credentials,
+        })
+        .await;
+    }
 
     Ok(())
 }

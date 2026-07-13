@@ -150,6 +150,7 @@ pub async fn login_finish(
 
     let mut credentials = Credentials {
         offline_profile: MinecraftProfile::default(),
+        account_type: MinecraftAccountType::Microsoft,
         access_token: minecraft_token.access_token,
         refresh_token: oauth_token.value.refresh_token,
         expires: oauth_token.date
@@ -177,6 +178,43 @@ pub async fn login_finish(
     Ok(credentials)
 }
 
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum MinecraftAccountType {
+    #[default]
+    Microsoft,
+    Offline,
+}
+
+impl MinecraftAccountType {
+    fn from_database(value: &str) -> Self {
+        match value {
+            "offline" => Self::Offline,
+            _ => Self::Microsoft,
+        }
+    }
+
+    fn as_database(self) -> &'static str {
+        match self {
+            Self::Microsoft => "microsoft",
+            Self::Offline => "offline",
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct StoredCredentials {
+    uuid: String,
+    active: i64,
+    username: String,
+    account_type: String,
+    access_token: String,
+    refresh_token: String,
+    expires: i64,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Credentials {
     /// The offline profile of the user these credentials are for.
@@ -186,6 +224,8 @@ pub struct Credentials {
     /// such as skins or capes is available.
     #[serde(rename = "profile")]
     pub offline_profile: MinecraftProfile,
+    #[serde(default)]
+    pub account_type: MinecraftAccountType,
     pub access_token: String,
     pub refresh_token: String,
     pub expires: DateTime<Utc>,
@@ -245,12 +285,73 @@ impl OnlineProfileCacheIntent {
 }
 
 impl Credentials {
+    pub fn offline(username: &str) -> crate::Result<Self> {
+        let username = username.trim();
+        if !(3..=16).contains(&username.len())
+            || !username
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            return Err(ErrorKind::InputError(
+                "Minecraft usernames must be 3-16 characters and contain only letters, numbers, and underscores"
+                    .to_string(),
+            )
+            .as_error());
+        }
+
+        let mut uuid_bytes =
+            md5::compute(format!("OfflinePlayer:{username}")).0;
+        uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x30;
+        uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80;
+
+        Ok(Self {
+            offline_profile: MinecraftProfile {
+                id: Uuid::from_bytes(uuid_bytes),
+                name: username.to_string(),
+                ..MinecraftProfile::default()
+            },
+            account_type: MinecraftAccountType::Offline,
+            access_token: "0".to_string(),
+            refresh_token: String::new(),
+            expires: Utc::now(),
+            active: true,
+        })
+    }
+
+    pub fn is_offline(&self) -> bool {
+        self.account_type == MinecraftAccountType::Offline
+    }
+
+    fn from_stored(stored: StoredCredentials) -> Self {
+        Self {
+            offline_profile: MinecraftProfile {
+                id: Uuid::parse_str(&stored.uuid).unwrap_or_default(),
+                name: stored.username,
+                ..MinecraftProfile::default()
+            },
+            account_type: MinecraftAccountType::from_database(
+                &stored.account_type,
+            ),
+            access_token: stored.access_token,
+            refresh_token: stored.refresh_token,
+            expires: Utc
+                .timestamp_opt(stored.expires, 0)
+                .single()
+                .unwrap_or_else(Utc::now),
+            active: stored.active == 1,
+        }
+    }
+
     /// Refreshes the authentication tokens for this user if they are expired, or
     /// very close to expiration.
     async fn refresh(
         &mut self,
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<()> {
+        if self.is_offline() {
+            return Ok(());
+        }
+
         // Use a margin of 5 minutes to give e.g. Minecraft and potentially
         // other operations that depend on a fresh token 5 minutes to complete
         // from now, and deal with some classes of clock skew
@@ -331,6 +432,10 @@ impl Credentials {
         &self,
         cache_intent: OnlineProfileCacheIntent,
     ) -> Option<Arc<MinecraftProfile>> {
+        if self.is_offline() {
+            return None;
+        }
+
         let max_age = cache_intent.max_age();
         let stale_profile = {
             let mut profile_cache = PROFILE_CACHE.lock().await;
@@ -479,33 +584,21 @@ impl Credentials {
     pub async fn get_active(
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<Option<Self>> {
-        let res = sqlx::query!(
+        let res = sqlx::query_as::<_, StoredCredentials>(
             "
             SELECT
-                uuid, active, username, access_token, refresh_token, expires
+                uuid, active, username, account_type, access_token,
+                refresh_token, expires
             FROM minecraft_users
             WHERE active = TRUE
-            "
+            ",
         )
         .fetch_optional(exec)
         .await?;
 
         Ok(match res {
             Some(x) => {
-                let mut credentials = Self {
-                    offline_profile: MinecraftProfile {
-                        id: Uuid::parse_str(&x.uuid).unwrap_or_default(),
-                        name: x.username,
-                        ..MinecraftProfile::default()
-                    },
-                    access_token: x.access_token,
-                    refresh_token: x.refresh_token,
-                    expires: Utc
-                        .timestamp_opt(x.expires, 0)
-                        .single()
-                        .unwrap_or_else(Utc::now),
-                    active: x.active == 1,
-                };
+                let mut credentials = Self::from_stored(x);
                 credentials.refresh(exec).await.ok();
                 Some(credentials)
             }
@@ -516,30 +609,18 @@ impl Credentials {
     pub async fn get_all(
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<DashMap<Uuid, Self>> {
-        let res = sqlx::query!(
+        let res = sqlx::query_as::<_, StoredCredentials>(
             "
             SELECT
-                uuid, active, username, access_token, refresh_token, expires
+                uuid, active, username, account_type, access_token,
+                refresh_token, expires
             FROM minecraft_users
-            "
+            ",
         )
         .fetch(exec)
         .try_fold(DashMap::new(), |acc, x| {
-            let uuid = Uuid::parse_str(&x.uuid).unwrap_or_default();
-            let mut credentials = Self {
-                offline_profile: MinecraftProfile {
-                    id: uuid,
-                    name: x.username,
-                    ..MinecraftProfile::default()
-                },
-                access_token: x.access_token,
-                refresh_token: x.refresh_token,
-                expires: Utc
-                    .timestamp_opt(x.expires, 0)
-                    .single()
-                    .unwrap_or_else(Utc::now),
-                active: x.active == 1,
-            };
+            let mut credentials = Self::from_stored(x);
+            let uuid = credentials.offline_profile.id;
 
             async move {
                 credentials.refresh(exec).await.ok();
@@ -560,6 +641,7 @@ impl Credentials {
         let profile = self.maybe_online_profile().await;
         let expires = self.expires.timestamp();
         let uuid = profile.id.as_hyphenated().to_string();
+        let account_type = self.account_type.as_database();
 
         if self.active {
             sqlx::query!(
@@ -572,26 +654,31 @@ impl Credentials {
             .await?;
         }
 
-        sqlx::query!(
+        sqlx::query(
             "
-            INSERT INTO minecraft_users (uuid, active, username, access_token, refresh_token, expires)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO minecraft_users (
+                uuid, active, username, account_type, access_token,
+                refresh_token, expires
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (uuid) DO UPDATE SET
                 active = $2,
                 username = $3,
-                access_token = $4,
-                refresh_token = $5,
-                expires = $6
+                account_type = $4,
+                access_token = $5,
+                refresh_token = $6,
+                expires = $7
             ",
-            uuid,
-            self.active,
-            profile.name,
-            self.access_token,
-            self.refresh_token,
-            expires,
         )
-            .execute(exec)
-            .await?;
+        .bind(uuid)
+        .bind(self.active)
+        .bind(&profile.name)
+        .bind(account_type)
+        .bind(&self.access_token)
+        .bind(&self.refresh_token)
+        .bind(expires)
+        .execute(exec)
+        .await?;
 
         Ok(())
     }
@@ -623,35 +710,86 @@ impl Serialize for Credentials {
         // Opportunistically hydrate the profile with its online data if possible for frontend
         // consumption, transparently handling all the possible Tokio runtime states the current
         // thread may be in the most efficient way
-        let profile = match Handle::try_current().ok() {
-            Some(runtime)
-                if runtime.runtime_flavor() == RuntimeFlavor::CurrentThread =>
-            {
-                runtime.block_on(self.maybe_online_profile())
+        let profile = if self.is_offline() {
+            MaybeOnlineMinecraftProfile::Offline(&self.offline_profile)
+        } else {
+            match Handle::try_current().ok() {
+                Some(runtime)
+                    if runtime.runtime_flavor()
+                        == RuntimeFlavor::CurrentThread =>
+                {
+                    runtime.block_on(self.maybe_online_profile())
+                }
+                Some(runtime) => task::block_in_place(|| {
+                    runtime.block_on(self.maybe_online_profile())
+                }),
+                None => tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_or_else(
+                        |_| {
+                            MaybeOnlineMinecraftProfile::Offline(
+                                &self.offline_profile,
+                            )
+                        },
+                        |runtime| runtime.block_on(self.maybe_online_profile()),
+                    ),
             }
-            Some(runtime) => task::block_in_place(|| {
-                runtime.block_on(self.maybe_online_profile())
-            }),
-            None => tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_or_else(
-                    |_| {
-                        MaybeOnlineMinecraftProfile::Offline(
-                            &self.offline_profile,
-                        )
-                    },
-                    |runtime| runtime.block_on(self.maybe_online_profile()),
-                ),
         };
 
-        let mut ser = serializer.serialize_struct("Credentials", 5)?;
+        let mut ser = serializer.serialize_struct("Credentials", 6)?;
         ser.serialize_field("profile", &*profile)?;
+        ser.serialize_field("account_type", &self.account_type)?;
         ser.serialize_field("access_token", &self.access_token)?;
         ser.serialize_field("refresh_token", &self.refresh_token)?;
         ser.serialize_field("expires", &self.expires)?;
         ser.serialize_field("active", &self.active)?;
         ser.end()
+    }
+}
+
+#[cfg(test)]
+mod offline_account_tests {
+    use super::*;
+
+    #[test]
+    fn creates_java_compatible_offline_uuid() {
+        let credentials = Credentials::offline("Notch").unwrap();
+
+        assert_eq!(
+            credentials.offline_profile.id,
+            Uuid::parse_str("b50ad385-829d-3141-a216-7e7d7539ba7f").unwrap()
+        );
+        assert_eq!(credentials.account_type, MinecraftAccountType::Offline);
+        assert_eq!(credentials.access_token, "0");
+    }
+
+    #[test]
+    fn validates_offline_username() {
+        assert!(Credentials::offline("abc").is_ok());
+        assert!(Credentials::offline("Player_123").is_ok());
+        assert!(Credentials::offline("ab").is_err());
+        assert!(Credentials::offline("player name").is_err());
+        assert!(Credentials::offline("玩家").is_err());
+    }
+
+    #[tokio::test]
+    async fn persists_offline_account_as_active() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let credentials = Credentials::offline("OfflineUser").unwrap();
+        credentials.upsert(&pool).await.unwrap();
+
+        let stored = Credentials::get_active(&pool).await.unwrap().unwrap();
+        assert_eq!(stored.offline_profile.name, "OfflineUser");
+        assert_eq!(stored.offline_profile.id, credentials.offline_profile.id);
+        assert!(stored.is_offline());
+        assert!(stored.active);
     }
 }
 

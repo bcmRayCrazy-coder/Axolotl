@@ -1178,6 +1178,12 @@
   "app.skins.modal.upload-skin-first-tooltip": {
     "message": "Upload a skin first!"
   },
+  "app.skins.offline-account.compatibility": {
+    "message": "Offline skins are applied locally with a resource pack. Compatibility is best on Minecraft 1.6–1.19.2; newer versions are supported on a best-effort basis. The skin is not uploaded to Mojang, may also replace other default-skinned players on your client, and some skin mods or server plugins may override it."
+  },
+  "app.skins.offline-account.compatibility-title": {
+    "message": "Offline skin compatibility"
+  },
   "app.skins.preview.edit-button": {
     "message": "Edit skin"
   },
@@ -1697,14 +1703,41 @@
   "instance.worlds.world_in_use": {
     "message": "World is in use"
   },
-  "minecraft-account.add-account": {
-    "message": "Add account"
+  "minecraft-account.add-microsoft-account": {
+    "message": "Add Microsoft account"
+  },
+  "minecraft-account.add-offline-account": {
+    "message": "Add offline account"
   },
   "minecraft-account.label": {
     "message": "Minecraft account"
   },
   "minecraft-account.not-signed-in": {
     "message": "Not signed in"
+  },
+  "minecraft-account.offline-account": {
+    "message": "Offline Minecraft account"
+  },
+  "minecraft-account.offline-badge": {
+    "message": "Offline"
+  },
+  "minecraft-account.offline-modal.create": {
+    "message": "Create account"
+  },
+  "minecraft-account.offline-modal.description": {
+    "message": "Choose the username used in offline games. This account can only join servers that allow offline players."
+  },
+  "minecraft-account.offline-modal.title": {
+    "message": "Add offline account"
+  },
+  "minecraft-account.offline-modal.username-label": {
+    "message": "Minecraft username"
+  },
+  "minecraft-account.offline-modal.username-placeholder": {
+    "message": "Enter a username"
+  },
+  "minecraft-account.offline-modal.username-validation": {
+    "message": "Use 3–16 letters, numbers, or underscores."
   },
   "minecraft-account.remove-account": {
     "message": "Remove account"

@@ -28,6 +28,98 @@ pub struct CustomMinecraftSkin {
     pub display_order: i64,
 }
 
+/// The skin selected locally for an offline Minecraft account.
+#[derive(Debug, Clone)]
+pub struct OfflineMinecraftSkin {
+    pub texture_key: String,
+    pub variant: MinecraftSkinVariant,
+}
+
+struct OfflineMinecraftSkinRow {
+    texture_key: String,
+    variant: MinecraftSkinVariant,
+}
+
+impl OfflineMinecraftSkin {
+    pub async fn get(
+        minecraft_user_id: Uuid,
+        db: impl sqlx::Acquire<'_, Database = sqlx::Sqlite>,
+    ) -> crate::Result<Option<Self>> {
+        let minecraft_user_id = minecraft_user_id.as_hyphenated();
+
+        Ok(sqlx::query_as!(
+            OfflineMinecraftSkinRow,
+            "SELECT texture_key, variant AS 'variant: MinecraftSkinVariant' \
+            FROM offline_minecraft_skins WHERE minecraft_user_uuid = ?",
+            minecraft_user_id
+        )
+        .fetch_optional(&mut *db.acquire().await?)
+        .await?
+        .map(|row| Self {
+            texture_key: row.texture_key,
+            variant: row.variant,
+        }))
+    }
+
+    pub async fn set(
+        minecraft_user_id: Uuid,
+        texture_key: &str,
+        variant: MinecraftSkinVariant,
+        db: impl sqlx::Acquire<'_, Database = sqlx::Sqlite>,
+    ) -> crate::Result<()> {
+        let minecraft_user_id = minecraft_user_id.as_hyphenated();
+
+        sqlx::query!(
+            "INSERT INTO offline_minecraft_skins (minecraft_user_uuid, texture_key, variant) \
+            VALUES (?, ?, ?) \
+            ON CONFLICT (minecraft_user_uuid) DO UPDATE SET \
+            texture_key = excluded.texture_key, variant = excluded.variant",
+            minecraft_user_id,
+            texture_key,
+            variant
+        )
+        .execute(&mut *db.acquire().await?)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn clear(
+        minecraft_user_id: Uuid,
+        db: impl sqlx::Acquire<'_, Database = sqlx::Sqlite>,
+    ) -> crate::Result<()> {
+        let minecraft_user_id = minecraft_user_id.as_hyphenated();
+
+        sqlx::query!(
+            "DELETE FROM offline_minecraft_skins WHERE minecraft_user_uuid = ?",
+            minecraft_user_id
+        )
+        .execute(&mut *db.acquire().await?)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn clear_if_texture(
+        minecraft_user_id: Uuid,
+        texture_key: &str,
+        db: impl sqlx::Acquire<'_, Database = sqlx::Sqlite>,
+    ) -> crate::Result<()> {
+        let minecraft_user_id = minecraft_user_id.as_hyphenated();
+
+        sqlx::query!(
+            "DELETE FROM offline_minecraft_skins \
+            WHERE minecraft_user_uuid = ? AND texture_key = ?",
+            minecraft_user_id,
+            texture_key
+        )
+        .execute(&mut *db.acquire().await?)
+        .await?;
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum CustomMinecraftSkinInsertPosition {
     Top,
@@ -278,5 +370,54 @@ impl CustomMinecraftSkin {
         transaction.commit().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::Credentials;
+
+    #[tokio::test]
+    async fn persists_offline_skin_selection_per_account() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        let credentials = Credentials::offline("SkinTester").unwrap();
+        credentials.upsert(&pool).await.unwrap();
+        OfflineMinecraftSkin::set(
+            credentials.offline_profile.id,
+            "local-test-texture",
+            MinecraftSkinVariant::Slim,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        let selected =
+            OfflineMinecraftSkin::get(credentials.offline_profile.id, &pool)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(selected.texture_key, "local-test-texture");
+        assert_eq!(selected.variant, MinecraftSkinVariant::Slim);
+
+        OfflineMinecraftSkin::clear_if_texture(
+            credentials.offline_profile.id,
+            "local-test-texture",
+            &pool,
+        )
+        .await
+        .unwrap();
+        assert!(
+            OfflineMinecraftSkin::get(credentials.offline_profile.id, &pool)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

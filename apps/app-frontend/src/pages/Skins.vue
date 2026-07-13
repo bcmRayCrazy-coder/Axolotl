@@ -179,6 +179,15 @@ const messages = defineMessages({
 		id: 'app.skins.sign-in.button',
 		defaultMessage: 'Sign In',
 	},
+	offlineCompatibility: {
+		id: 'app.skins.offline-account.compatibility',
+		defaultMessage:
+			'Offline skins are applied locally with a resource pack. Compatibility is best on Minecraft 1.6–1.19.2; newer versions are supported on a best-effort basis. The skin is not uploaded to Mojang, may also replace other default-skinned players on your client, and some skin mods or server plugins may override it.',
+	},
+	offlineCompatibilityTitle: {
+		id: 'app.skins.offline-account.compatibility-title',
+		defaultMessage: 'Offline skin compatibility',
+	},
 })
 
 const editSkinModal = useTemplateRef('editSkinModal')
@@ -199,6 +208,7 @@ const offline = ref(!navigator.onLine)
 const accountsCard = inject('accountsCard') as Ref<typeof AccountsCard>
 const currentUser = ref(undefined)
 const currentUserId = ref<string | undefined>(undefined)
+const currentAccountType = ref<'microsoft' | 'offline' | undefined>(undefined)
 
 const username = computed(() => currentUser.value?.profile?.name ?? undefined)
 const selectedSkin = ref<Skin | null>(null)
@@ -293,7 +303,9 @@ const capeTexture = computed(() => currentCape.value?.texture)
 const skinVariant = computed(() => selectedSkin.value?.variant)
 const skinNametag = computed(() => (themeStore.hideNametagSkinsPage ? undefined : username.value))
 const isSkinManagementReadOnly = computed(
-	() => offline.value || (authServerQuery.isError.value && !authServerQuery.isLoading.value),
+	() =>
+		currentAccountType.value !== 'offline' &&
+		(offline.value || (authServerQuery.isError.value && !authServerQuery.isLoading.value)),
 )
 const hasPendingSkinChange = computed(
 	() => !skinsMatch(selectedSkin.value, originalSelectedSkin.value),
@@ -745,11 +757,14 @@ async function loadCurrentUser() {
 		currentUserId.value = defaultId
 
 		const allAccounts = await users()
-		currentUser.value = allAccounts.find((acc) => acc.profile.id === defaultId)
+		const selectedAccount = allAccounts.find((acc) => acc.profile.id === defaultId)
+		currentAccountType.value = selectedAccount?.account_type
+		currentUser.value = selectedAccount
 	} catch (e) {
 		handleError(e as Error)
 		currentUser.value = undefined
 		currentUserId.value = undefined
+		currentAccountType.value = undefined
 	}
 }
 
@@ -1022,6 +1037,19 @@ await loadSkins()
 		:proceed-label="formatMessage(commonMessages.deleteLabel)"
 		@proceed="deleteSkin"
 	/>
+	<Teleport
+		v-if="currentUser && currentAccountType === 'offline'"
+		to="#sidebar-default-teleport-target"
+	>
+		<section class="p-4">
+			<h3 class="m-0 text-base font-semibold text-primary">
+				{{ formatMessage(messages.offlineCompatibilityTitle) }}
+			</h3>
+			<p class="mb-0 mt-2 text-sm leading-6 text-secondary">
+				{{ formatMessage(messages.offlineCompatibility) }}
+			</p>
+		</section>
+	</Teleport>
 
 	<div v-if="currentUser" class="skin-layout box-border min-h-full p-4">
 		<div class="sticky top-6 self-start p-2 pt-0">
@@ -1129,7 +1157,9 @@ await loadSkins()
 			></div>
 
 			<div class="flex flex-col gap-5">
-				<h1 class="text-3xl font-extrabold m-0">{{ formatMessage(messages.signInTitle) }}</h1>
+				<h1 class="text-3xl font-extrabold m-0">
+					{{ formatMessage(messages.signInTitle) }}
+				</h1>
 				<p class="text-lg m-0">
 					{{ formatMessage(messages.signInDescription) }}
 				</p>

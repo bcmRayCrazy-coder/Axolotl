@@ -11,6 +11,12 @@
 				{{ formatMessage(messages.signInToMinecraft) }}
 			</button>
 		</ButtonStyled>
+		<ButtonStyled>
+			<button :disabled="loginDisabled" @click="showOfflineAccountModal()">
+				<PlusIcon />
+				{{ formatMessage(messages.addOfflineAccount) }}
+			</button>
+		</ButtonStyled>
 	</div>
 	<Accordion
 		v-else
@@ -25,7 +31,13 @@
 					<span class="truncate w-full text-left">{{
 						selectedAccount ? selectedAccount.profile.name : formatMessage(messages.selectAccount)
 					}}</span>
-					<span class="text-secondary text-xs">{{ formatMessage(messages.minecraftAccount) }}</span>
+					<span class="text-secondary text-xs">
+						{{
+							selectedAccount?.account_type === 'offline'
+								? formatMessage(messages.offlineAccount)
+								: formatMessage(messages.minecraftAccount)
+						}}
+					</span>
 				</div>
 			</div>
 		</template>
@@ -52,6 +64,9 @@
 						>
 							{{ account.profile.name }}
 						</p>
+						<span v-if="account.account_type === 'offline'" class="text-secondary text-xs shrink-0">
+							{{ formatMessage(messages.offlineBadge) }}
+						</span>
 					</button>
 					<ButtonStyled circular color="red" color-fill="none" hover-color-fill="background">
 						<button
@@ -68,12 +83,51 @@
 				<ButtonStyled v-if="accounts.length > 0" class="w-full">
 					<button :disabled="loginDisabled" @click="login()">
 						<PlusIcon />
-						{{ formatMessage(messages.addAccount) }}
+						{{ formatMessage(messages.addMicrosoftAccount) }}
+					</button>
+				</ButtonStyled>
+				<ButtonStyled v-if="accounts.length > 0" class="w-full">
+					<button :disabled="loginDisabled" @click="showOfflineAccountModal()">
+						<PlusIcon />
+						{{ formatMessage(messages.addOfflineAccount) }}
 					</button>
 				</ButtonStyled>
 			</div>
 		</div>
 	</Accordion>
+	<ModalWrapper ref="offlineAccountModal" :header="formatMessage(messages.offlineModalTitle)">
+		<div class="flex min-w-[22rem] flex-col gap-4">
+			<p class="m-0 text-secondary">{{ formatMessage(messages.offlineModalDescription) }}</p>
+			<label class="flex flex-col gap-2 font-semibold">
+				{{ formatMessage(messages.usernameLabel) }}
+				<StyledInput
+					v-model="offlineUsername"
+					:disabled="loginDisabled"
+					:placeholder="formatMessage(messages.usernamePlaceholder)"
+					autocomplete="off"
+					maxlength="16"
+					@keyup.enter="addOfflineAccount()"
+				/>
+			</label>
+			<p v-if="offlineUsername.length > 0 && !offlineUsernameValid" class="m-0 text-sm text-red">
+				{{ formatMessage(messages.usernameValidation) }}
+			</p>
+			<div class="input-group push-right">
+				<ButtonStyled>
+					<button :disabled="loginDisabled" @click="offlineAccountModal?.hide()">
+						{{ formatMessage(commonMessages.cancelButton) }}
+					</button>
+				</ButtonStyled>
+				<ButtonStyled color="brand">
+					<button :disabled="loginDisabled || !offlineUsernameValid" @click="addOfflineAccount()">
+						<SpinnerIcon v-if="loginDisabled" class="animate-spin" />
+						<PlusIcon v-else />
+						{{ formatMessage(messages.createOfflineAccount) }}
+					</button>
+				</ButtonStyled>
+			</div>
+		</div>
+	</ModalWrapper>
 </template>
 
 <script setup lang="ts">
@@ -89,16 +143,21 @@ import {
 	Accordion,
 	Avatar,
 	ButtonStyled,
+	commonMessages,
 	defineMessages,
 	injectNotificationManager,
+	StyledInput,
 	useVIntl,
 } from '@modrinth/ui'
 import type { Ref } from 'vue'
 import { computed, onUnmounted, ref } from 'vue'
 
 import axolotlLogo from '@/assets/axolotl.png'
+import steveSkinTexture from '@/assets/skins/steve.png'
+import ModalWrapper from '@/components/ui/modal/ModalWrapper.vue'
 import { trackEvent } from '@/helpers/analytics'
 import {
+	add_offline_user,
 	get_default_user,
 	login as login_flow,
 	remove_user,
@@ -119,6 +178,7 @@ const emit = defineEmits<{
 }>()
 
 type MinecraftCredential = {
+	account_type: 'microsoft' | 'offline'
 	profile: {
 		id: string
 		name: string
@@ -130,13 +190,31 @@ const loginDisabled = ref(false)
 const defaultUser = ref<string | undefined>()
 const equippedSkin = ref<Skin | null>(null)
 const headUrlCache = ref(new Map<string, string>())
+const accountHeadUrlCache = ref(new Map<string, string>())
+const offlineAccountModal = ref<InstanceType<typeof ModalWrapper> | null>(null)
+const offlineUsername = ref('')
+const offlineUsernameValid = computed(() =>
+	/^[A-Za-z0-9_]{3,16}$/.test(offlineUsername.value.trim()),
+)
+
+function createSkinHeadDataUrl(textureUrl: string) {
+	const escapedTextureUrl = textureUrl
+		.replaceAll('&', '&amp;')
+		.replaceAll('"', '&quot;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 8 8" shape-rendering="crispEdges"><image href="${escapedTextureUrl}" x="-8" y="-8" width="64" height="64" style="image-rendering:pixelated"/><image href="${escapedTextureUrl}" x="-40" y="-8" width="64" height="64" style="image-rendering:pixelated"/></svg>`
+
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
+
+const defaultSteveHeadUrl = createSkinHeadDataUrl(steveSkinTexture)
 
 async function refreshValues() {
 	defaultUser.value = await get_default_user().catch(handleError)
 	const userList = await users().catch(handleError)
 	accounts.value = Array.isArray(userList) ? [...userList] : []
 	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
-
 	try {
 		const skins = await get_available_skins()
 		equippedSkin.value = skins.find((skin) => skin.is_equipped) ?? null
@@ -148,6 +226,12 @@ async function refreshValues() {
 					equippedSkin.value.texture_key,
 					headUrl,
 				)
+				if (defaultUser.value) {
+					accountHeadUrlCache.value = new Map(accountHeadUrlCache.value).set(
+						defaultUser.value,
+						headUrl,
+					)
+				}
 			} catch (error) {
 				console.warn('Failed to get head render for equipped skin:', error)
 			}
@@ -163,6 +247,12 @@ async function setEquippedSkin(skin: Skin) {
 	try {
 		const headUrl = await getPlayerHeadUrl(skin)
 		headUrlCache.value = new Map(headUrlCache.value).set(skin.texture_key, headUrl)
+		if (defaultUser.value) {
+			accountHeadUrlCache.value = new Map(accountHeadUrlCache.value).set(
+				defaultUser.value,
+				headUrl,
+			)
+		}
 	} catch (error) {
 		console.warn('Failed to get head render for equipped skin:', error)
 	}
@@ -191,7 +281,13 @@ const avatarUrl = computed(() => {
 		if (cachedUrl) {
 			return cachedUrl
 		}
+		if (selectedAccount.value?.account_type === 'offline') {
+			return defaultSteveHeadUrl
+		}
 		return `https://mc-heads.net/avatar/${equippedSkin.value.texture_key}/128`
+	}
+	if (selectedAccount.value?.account_type === 'offline') {
+		return defaultSteveHeadUrl
 	}
 	if (selectedAccount.value?.profile?.id) {
 		return `https://mc-heads.net/avatar/${selectedAccount.value.profile.id}/128`
@@ -200,6 +296,9 @@ const avatarUrl = computed(() => {
 })
 
 function getAccountAvatarUrl(account: MinecraftCredential) {
+	if (account.account_type === 'offline') {
+		return accountHeadUrlCache.value.get(account.profile.id) ?? defaultSteveHeadUrl
+	}
 	if (
 		account.profile.id === selectedAccount.value?.profile?.id &&
 		equippedSkin.value?.texture_key
@@ -231,6 +330,27 @@ async function login() {
 	loginDisabled.value = false
 }
 
+function showOfflineAccountModal() {
+	offlineUsername.value = ''
+	offlineAccountModal.value?.show()
+}
+
+async function addOfflineAccount() {
+	if (!offlineUsernameValid.value || loginDisabled.value) return
+
+	loginDisabled.value = true
+	try {
+		const account = await add_offline_user(offlineUsername.value.trim())
+		offlineAccountModal.value?.hide()
+		await setAccount(account)
+		trackEvent('OfflineAccountAdd')
+	} catch (error) {
+		handleError(error as Error)
+	} finally {
+		loginDisabled.value = false
+	}
+}
+
 async function logout(id: string) {
 	await remove_user(id).catch(handleError)
 	await refreshValues()
@@ -257,9 +377,46 @@ const messages = defineMessages({
 		id: 'minecraft-account.not-signed-in',
 		defaultMessage: 'Not signed in',
 	},
-	addAccount: {
-		id: 'minecraft-account.add-account',
-		defaultMessage: 'Add account',
+	addMicrosoftAccount: {
+		id: 'minecraft-account.add-microsoft-account',
+		defaultMessage: 'Add Microsoft account',
+	},
+	addOfflineAccount: {
+		id: 'minecraft-account.add-offline-account',
+		defaultMessage: 'Add offline account',
+	},
+	offlineAccount: {
+		id: 'minecraft-account.offline-account',
+		defaultMessage: 'Offline Minecraft account',
+	},
+	offlineBadge: {
+		id: 'minecraft-account.offline-badge',
+		defaultMessage: 'Offline',
+	},
+	offlineModalTitle: {
+		id: 'minecraft-account.offline-modal.title',
+		defaultMessage: 'Add offline account',
+	},
+	offlineModalDescription: {
+		id: 'minecraft-account.offline-modal.description',
+		defaultMessage:
+			'Choose the username used in offline games. This account can only join servers that allow offline players.',
+	},
+	usernameLabel: {
+		id: 'minecraft-account.offline-modal.username-label',
+		defaultMessage: 'Minecraft username',
+	},
+	usernamePlaceholder: {
+		id: 'minecraft-account.offline-modal.username-placeholder',
+		defaultMessage: 'Enter a username',
+	},
+	usernameValidation: {
+		id: 'minecraft-account.offline-modal.username-validation',
+		defaultMessage: 'Use 3–16 letters, numbers, or underscores.',
+	},
+	createOfflineAccount: {
+		id: 'minecraft-account.offline-modal.create',
+		defaultMessage: 'Create account',
 	},
 	removeAccount: {
 		id: 'minecraft-account.remove-account',

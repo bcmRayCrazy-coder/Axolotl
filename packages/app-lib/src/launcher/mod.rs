@@ -731,6 +731,13 @@ pub async fn launch_minecraft(
     let state = State::get().await?;
 
     let instance_path = get_instance_full_path(&instance.path).await?;
+    let offline_skin_pack =
+        crate::minecraft_skins::prepare_offline_skin_resource_pack(
+            credentials,
+            &instance_path,
+            &content_set.game_version,
+        )
+        .await?;
 
     let (minecraft, version_index) =
         resolve_minecraft_manifest(&content_set.game_version, &state).await?;
@@ -971,7 +978,10 @@ pub async fn launch_minecraft(
 
     // Overwrites the minecraft options.txt file with the settings from the profile
     // Uses 'a:b' syntax which is not quite yaml
-    if !mc_set_options.is_empty() {
+    if !mc_set_options.is_empty()
+        || offline_skin_pack.enabled_pack_id.is_some()
+        || instance_path.join("options.txt").exists()
+    {
         let options_path = instance_path.join("options.txt");
 
         let (mut options_string, input_encoding) = if options_path.exists() {
@@ -1007,6 +1017,11 @@ pub async fn launch_minecraft(
                 options_string = replaced_string;
             }
         }
+
+        update_offline_skin_resource_pack_option(
+            &mut options_string,
+            offline_skin_pack,
+        )?;
 
         io::write(&options_path, input_encoding.encode(&options_string).0)
             .await?;
@@ -1083,4 +1098,99 @@ pub async fn launch_minecraft(
             },
         )
         .await
+}
+
+fn update_offline_skin_resource_pack_option(
+    options_string: &mut String,
+    offline_skin_pack: crate::minecraft_skins::OfflineSkinPackOptions,
+) -> crate::Result<()> {
+    use crate::minecraft_skins::{
+        OFFLINE_SKIN_PACK_LEGACY_ID, OFFLINE_SKIN_PACK_MODERN_ID,
+    };
+
+    let resource_packs = Regex::new(r"(?m)^resourcePacks:(.*)$")?;
+    let existing_value = resource_packs
+        .captures(options_string)
+        .and_then(|captures| captures.get(1))
+        .map_or("[]", |value| value.as_str().trim());
+    if offline_skin_pack.enabled_pack_id.is_none()
+        && !existing_value.contains(OFFLINE_SKIN_PACK_LEGACY_ID)
+        && !existing_value.contains(OFFLINE_SKIN_PACK_MODERN_ID)
+    {
+        return Ok(());
+    }
+    let Ok(mut packs) = serde_json::from_str::<Vec<String>>(existing_value)
+    else {
+        tracing::warn!(
+            "Skipping offline skin resource-pack option update because resourcePacks in options.txt is malformed"
+        );
+        return Ok(());
+    };
+
+    packs.retain(|pack| {
+        pack != OFFLINE_SKIN_PACK_LEGACY_ID
+            && pack != OFFLINE_SKIN_PACK_MODERN_ID
+    });
+    if let Some(pack_id) = offline_skin_pack.enabled_pack_id
+        && !packs.iter().any(|pack| pack == pack_id)
+    {
+        if pack_id == OFFLINE_SKIN_PACK_MODERN_ID
+            && !packs.iter().any(|pack| pack == "vanilla")
+        {
+            packs.insert(0, "vanilla".to_string());
+        }
+        packs.push(pack_id.to_string());
+    }
+
+    let value = serde_json::to_string(&packs)?;
+    if resource_packs.is_match(options_string) {
+        *options_string = resource_packs
+            .replace_all(options_string, format!("resourcePacks:{value}"))
+            .to_string();
+    } else {
+        write!(options_string, "\nresourcePacks:{value}").unwrap();
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod offline_skin_resource_pack_tests {
+    use super::*;
+
+    #[test]
+    fn adds_modern_offline_skin_pack_without_removing_existing_packs() {
+        let mut options =
+            "resourcePacks:[\"vanilla\",\"file/user-pack.zip\"]".to_string();
+
+        update_offline_skin_resource_pack_option(
+            &mut options,
+            crate::minecraft_skins::OfflineSkinPackOptions {
+                enabled_pack_id: Some(
+                    crate::minecraft_skins::OFFLINE_SKIN_PACK_MODERN_ID,
+                ),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            options,
+            "resourcePacks:[\"vanilla\",\"file/user-pack.zip\",\"file/Axolotl Offline Skin.zip\"]"
+        );
+    }
+
+    #[test]
+    fn removes_both_offline_skin_pack_id_variants() {
+        let mut options = "resourcePacks:[\"vanilla\",\"Axolotl Offline Skin.zip\",\"file/Axolotl Offline Skin.zip\"]".to_string();
+
+        update_offline_skin_resource_pack_option(
+            &mut options,
+            crate::minecraft_skins::OfflineSkinPackOptions {
+                enabled_pack_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(options, "resourcePacks:[\"vanilla\"]");
+    }
 }

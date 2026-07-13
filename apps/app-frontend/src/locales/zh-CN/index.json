@@ -1178,6 +1178,12 @@
 	"app.skins.modal.upload-skin-first-tooltip": {
 		"message": "请先上传皮肤！"
 	},
+	"app.skins.offline-account.compatibility": {
+		"message": "离线皮肤通过本地资源包应用。Minecraft 1.6–1.19.2 的兼容性最佳；较新版本为尽力兼容。皮肤不会上传到 Mojang，并可能在你的客户端中同时替换其他使用默认皮肤的玩家；部分皮肤模组或服务器插件也可能覆盖它。"
+	},
+	"app.skins.offline-account.compatibility-title": {
+		"message": "离线皮肤兼容性"
+	},
 	"app.skins.preview.edit-button": {
 		"message": "编辑皮肤"
 	},
@@ -1697,14 +1703,41 @@
 	"instance.worlds.world_in_use": {
 		"message": "世界正在使用中"
 	},
-	"minecraft-account.add-account": {
-		"message": "添加账户"
+	"minecraft-account.add-microsoft-account": {
+		"message": "添加 Microsoft 账户"
+	},
+	"minecraft-account.add-offline-account": {
+		"message": "添加离线账户"
 	},
 	"minecraft-account.label": {
 		"message": "Minecraft 账户"
 	},
 	"minecraft-account.not-signed-in": {
 		"message": "未登录"
+	},
+	"minecraft-account.offline-account": {
+		"message": "Minecraft 离线账户"
+	},
+	"minecraft-account.offline-badge": {
+		"message": "离线"
+	},
+	"minecraft-account.offline-modal.create": {
+		"message": "创建账户"
+	},
+	"minecraft-account.offline-modal.description": {
+		"message": "选择离线游戏中使用的用户名。此账户只能加入允许离线玩家的服务器。"
+	},
+	"minecraft-account.offline-modal.title": {
+		"message": "添加离线账户"
+	},
+	"minecraft-account.offline-modal.username-label": {
+		"message": "Minecraft 用户名"
+	},
+	"minecraft-account.offline-modal.username-placeholder": {
+		"message": "输入用户名"
+	},
+	"minecraft-account.offline-modal.username-validation": {
+		"message": "请输入 3–16 个字母、数字或下划线。"
 	},
 	"minecraft-account.remove-account": {
 		"message": "移除账户"

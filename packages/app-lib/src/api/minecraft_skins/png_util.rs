@@ -88,6 +88,38 @@ pub fn dimensions(png_data: &[u8]) -> crate::Result<(u32, u32)> {
     Ok((width, height))
 }
 
+/// Crops a modern 64x64 skin to the 64x32 layout understood by Minecraft
+/// 1.6 and 1.7 clients.
+pub(super) fn to_legacy_client_texture(
+    png_data: &[u8],
+) -> crate::Result<Bytes> {
+    let mut decoder = png::Decoder::new(Cursor::new(png_data));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut png_reader = decoder.read_info()?;
+
+    if png_reader.info().width != 64 || png_reader.info().height != 64 {
+        Err(ErrorKind::InvalidSkinTexture)?;
+    }
+
+    let texture_buf = get_skin_texture_buffer(&mut png_reader, false)?;
+    let legacy_texture =
+        texture_buf.get(..64 * 32).ok_or(ErrorKind::InvalidPng)?;
+    let mut encoded_png = Vec::new();
+    let mut png_encoder = png::Encoder::new(&mut encoded_png, 64, 32);
+    png_encoder.set_color(png::ColorType::Rgba);
+    png_encoder.set_depth(png::BitDepth::Eight);
+    png_encoder.set_filter(png::Filter::NoFilter);
+    png_encoder.set_compression(png::Compression::Fast);
+
+    let png_buf = bytemuck::try_cast_slice(legacy_texture)
+        .map_err(|_| ErrorKind::InvalidPng)?;
+    let mut png_writer = png_encoder.write_header()?;
+    png_writer.write_image_data(png_buf)?;
+    png_writer.finish()?;
+
+    Ok(encoded_png.into())
+}
+
 /// Normalizes the texture of a Minecraft skin to the modern 64x64 format, handling legacy 64x32
 /// skins, doing "Notch transparency hack" and making inner parts opaque as the vanilla game client
 /// does. This function prioritizes PNG encoding speed over compression density, so the resulting
@@ -437,4 +469,14 @@ async fn normalize_skin_texture_works() {
             "Pixel data doesn't match for {skin_name}"
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn creates_legacy_client_skin_texture() {
+    let texture = include_bytes!("assets/test/notch_normalized.png");
+    let legacy_texture =
+        to_legacy_client_texture(texture).expect("Failed to crop skin");
+
+    assert_eq!(dimensions(&legacy_texture).unwrap(), (64, 32));
 }
