@@ -2035,5 +2035,32 @@
 	},
 	"app.translation-settings.operation-failed": {
 		"message": "翻译操作失败，请检查配置后重试。"
+	},
+	"app.browse.source.all": {
+		"message": "所有来源"
+	},
+	"app.browse.source.curseforge": {
+		"message": "CurseForge 平台"
+	},
+	"app.browse.source.modrinth": {
+		"message": "Modrinth"
+	},
+	"app.project.curseforge.loading": {
+		"message": "正在加载 CurseForge 项目…"
+	},
+	"app.project.curseforge.unavailable-description": {
+		"message": "该 CurseForge 项目没有返回任何数据。"
+	},
+	"app.project.curseforge.unavailable-title": {
+		"message": "项目不可用"
+	},
+	"project.description.title": {
+		"message": "简介"
+	},
+	"project.gallery.title": {
+		"message": "图库"
+	},
+	"project.versions.title": {
+		"message": "版本"
 	}
 }

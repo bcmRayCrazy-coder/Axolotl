@@ -210,7 +210,13 @@ pub static REQWEST_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("client configuration should be valid")
 });
 
-const FETCH_ATTEMPTS: usize = 2;
+const FETCH_ATTEMPTS: usize = 4;
+const FETCH_RETRY_DELAY: time::Duration = time::Duration::from_secs(1);
+
+fn fetch_retry_delay(attempt: usize) -> time::Duration {
+    let multiplier = 1_u32 << (attempt - 1);
+    FETCH_RETRY_DELAY.saturating_mul(multiplier)
+}
 
 pub type FetchProgressFn<'a> = dyn FnMut(
         u64,
@@ -489,6 +495,7 @@ async fn fetch_advanced_with_client_and_progress(
                     }
 
                     if attempt <= FETCH_ATTEMPTS {
+                        tokio::time::sleep(fetch_retry_delay(attempt)).await;
                         continue;
                     }
                 }
@@ -564,6 +571,8 @@ async fn fetch_advanced_with_client_and_progress(
                         let hash = sha1_async(bytes.clone()).await?;
                         if &*hash != sha1 {
                             if attempt <= FETCH_ATTEMPTS {
+                                tokio::time::sleep(fetch_retry_delay(attempt))
+                                    .await;
                                 continue;
                             } else {
                                 return Err(ErrorKind::HashError(
@@ -583,12 +592,22 @@ async fn fetch_advanced_with_client_and_progress(
 
                     return Ok(bytes);
                 } else if attempt <= FETCH_ATTEMPTS {
+                    tokio::time::sleep(fetch_retry_delay(attempt)).await;
                     continue;
                 } else if let Err(err) = bytes {
                     return Err(err.into());
                 }
             }
-            Err(_) if attempt <= FETCH_ATTEMPTS => continue,
+            Err(error) if attempt <= FETCH_ATTEMPTS => {
+                tracing::debug!(
+                    attempt,
+                    url,
+                    error = %error,
+                    "Fetch failed; retrying"
+                );
+                tokio::time::sleep(fetch_retry_delay(attempt)).await;
+                continue;
+            }
             Err(err) => {
                 return Err(err.into());
             }
@@ -816,6 +835,15 @@ pub async fn sha1_file_async(
 mod tests {
     use super::*;
     use chrono::{TimeDelta, Utc};
+    use std::time::Duration;
+
+    #[test]
+    fn fetch_retries_use_exponential_backoff() {
+        assert_eq!(fetch_retry_delay(1), Duration::from_secs(1));
+        assert_eq!(fetch_retry_delay(2), Duration::from_secs(2));
+        assert_eq!(fetch_retry_delay(3), Duration::from_secs(4));
+        assert_eq!(fetch_retry_delay(4), Duration::from_secs(8));
+    }
 
     #[test]
     fn test_fence_block_after_4_fails() {

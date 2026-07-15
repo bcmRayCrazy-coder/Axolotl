@@ -5,6 +5,7 @@ use std::{env, fs};
 
 fn main() {
     println!("cargo::rerun-if-changed=.env");
+    println!("cargo::rerun-if-env-changed=CURSEFORGE_API_KEY");
     println!("cargo::rerun-if-changed=java/gradle");
     println!("cargo::rerun-if-changed=java/src");
     println!("cargo::rerun-if-changed=java/build.gradle.kts");
