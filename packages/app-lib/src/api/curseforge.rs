@@ -509,7 +509,11 @@ pub async fn search_projects(
         push_query(&mut query, "categoryId", request.category_id);
     } else if request.category_ids.len() == 1 {
         // Single-category requests are more widely compatible as categoryId.
-        push_query(&mut query, "categoryId", request.category_ids.first().copied());
+        push_query(
+            &mut query,
+            "categoryId",
+            request.category_ids.first().copied(),
+        );
     } else {
         let category_ids = request
             .category_ids
