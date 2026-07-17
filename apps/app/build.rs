@@ -194,6 +194,13 @@ fn main() {
                         "install_job_cancel",
                         "install_job_dismiss",
                         "install_job_support_details",
+                        "download_job_list",
+                        "download_job_get",
+                        "download_job_retry",
+                        "download_job_cancel",
+                        "download_job_delete",
+                        "download_history_clear",
+                        "download_job_support_details",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

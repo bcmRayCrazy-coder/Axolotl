@@ -12,11 +12,22 @@ pub(crate) async fn remove_instance(
             crate::ErrorKind::InputError("Unknown instance".to_string())
         })?;
 
-    instance_rows::delete_instance_by_id(&instance.id, &state.pool).await?;
-
     let path = state.directories.instances_dir().join(&instance.path);
     if path.exists() {
         io::remove_dir_all(&path).await?;
+    }
+
+    let jobs = crate::install::store::mark_instance_deleted(instance_id, state)
+        .await?;
+    instance_rows::delete_instance_by_id(&instance.id, &state.pool).await?;
+    for job in jobs {
+        if let Err(error) =
+            crate::install::events::emit_install_job(&job.snapshot()).await
+        {
+            tracing::warn!(
+                "Failed to emit deleted instance download state: {error}"
+            );
+        }
     }
 
     Ok(())

@@ -3,6 +3,7 @@ import { AuthFeature, TauriModrinthClient, VerboseLoggingFeature } from '@modrin
 import {
 	ChangeSkinIcon,
 	CompassIcon,
+	DownloadIcon,
 	ExternalIcon,
 	HomeIcon,
 	LeftArrowIcon,
@@ -103,6 +104,7 @@ import {
 	setAppUpdateActions,
 } from '@/providers/app-update.ts'
 import { createContentInstall, provideContentInstall } from '@/providers/content-install'
+import { createDownloadManager, provideDownloadManager } from '@/providers/download-manager'
 import {
 	provideAppUpdateDownloadProgress,
 	subscribeToDownloadProgress,
@@ -146,6 +148,8 @@ const customBackgroundStyle = computed(() => {
 const notificationManager = new AppNotificationManager()
 provideNotificationManager(notificationManager)
 const { handleError, addNotification } = notificationManager
+const downloadManager = createDownloadManager(handleError)
+provideDownloadManager(downloadManager)
 
 const popupNotificationManager = new AppPopupNotificationManager()
 providePopupNotificationManager(popupNotificationManager)
@@ -255,6 +259,7 @@ onUnmounted(async () => {
 	clearDelayedUpdatePopup()
 
 	await unlistenUpdateDownload?.()
+	downloadManager.dispose()
 })
 
 const { formatMessage } = useVIntl()
@@ -302,6 +307,10 @@ const messages = defineMessages({
 		id: 'app.navigation.library',
 		defaultMessage: 'Library',
 	},
+	downloads: {
+		id: 'app.navigation.downloads',
+		defaultMessage: 'Downloads',
+	},
 	createInstance: {
 		id: 'app.navigation.create-instance',
 		defaultMessage: 'Create new instance',
@@ -322,6 +331,7 @@ const messages = defineMessages({
 
 async function setupApp() {
 	const initialSettings = await getSettings()
+	await downloadManager.start()
 	const {
 		native_decorations,
 		theme,
@@ -1153,6 +1163,19 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				"
 			>
 				<LibraryIcon />
+			</NavButton>
+			<NavButton
+				v-tooltip.right="formatMessage(messages.downloads)"
+				to="/downloads"
+				class="relative"
+			>
+				<DownloadIcon />
+				<span
+					v-if="downloadManager.activeCount.value > 0"
+					class="absolute right-0 top-0 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-bold leading-4 text-white"
+				>
+					{{ Math.min(downloadManager.activeCount.value, 99) }}
+				</span>
 			</NavButton>
 			<div class="h-px w-6 mx-auto my-2 bg-surface-5"></div>
 			<suspense>

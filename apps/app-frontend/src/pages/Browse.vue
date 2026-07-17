@@ -39,6 +39,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import ContextMenu from '@/components/ui/ContextMenu.vue'
 import { useAppServerBrowse } from '@/composables/browse/use-app-server-browse'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
+import { mergeProviderResults } from '@/helpers/browse-merge'
 import {
 	get_project,
 	get_project_v3,
@@ -46,12 +47,11 @@ import {
 	get_search_results_v3,
 	get_version_many,
 } from '@/helpers/cache.js'
-import { mergeProviderResults } from '@/helpers/browse-merge'
 import {
-	containsChineseSearchText,
-	resolveChineseContentSearch,
 	type ChineseSearchResolution,
 	type ChineseSearchTranslation,
+	containsChineseSearchText,
+	resolveChineseContentSearch,
 } from '@/helpers/content-search'
 import {
 	type CurseForgeCategory,
@@ -64,8 +64,8 @@ import {
 import {
 	CF_EXTRA_CATEGORY_HEADER,
 	curseForgeCategoryValue,
-	isCurseForgeOnlyCategoryName,
 	findUnmappedCurseForgeCategories,
+	isCurseForgeOnlyCategoryName,
 	localizeCurseForgeCategoryLabels,
 	localizeCurseForgeCategoryName,
 	localizeCurseForgeLabel,
@@ -211,12 +211,11 @@ const curseForgeCategoryTags = computed(() => {
 			const isResolution =
 				classId === 12 && category.displayIndex != null && category.displayIndex < 0
 			const displayName = localizeCurseForgeCategoryName(category)
-			const header =
-				isResolution
-					? 'resolutions'
-					: parent && parent.id !== classId
-						? parent.slug
-						: 'categories'
+			const header = isResolution
+				? 'resolutions'
+				: parent && parent.id !== classId
+					? parent.slug
+					: 'categories'
 			const headerDisplayName =
 				header === 'resolutions' || header === 'categories'
 					? undefined
@@ -991,7 +990,7 @@ function getCardActions(
 							}
 						},
 						(profile) => {
-							router.push(`/instance/${profile}`)
+							router.push(isModpack ? '/downloads' : `/instance/${profile}`)
 						},
 						{
 							preferredLoader: instance.value?.loader ?? selectedPreferences.loaders?.[0],
@@ -1042,17 +1041,12 @@ function extractQuotedFilterValues(source: string): string[] {
 function getFirstSearchFilter(filters: string, field: string) {
 	// Modrinth search filter values are backtick-quoted (`value`); keep double-quote
 	// support for any legacy/manual strings.
-	return new RegExp(
-		`${field}\\s*(?:=|IN\\s*\\[)\\s*[\`"]([^\`"]+)`,
-	).exec(filters)?.[1]
+	return new RegExp(`${field}\\s*(?:=|IN\\s*\\[)\\s*[\`"]([^\`"]+)`).exec(filters)?.[1]
 }
 
 function getSearchFilterValues(filters: string, field: string) {
 	const values: string[] = []
-	const pattern = new RegExp(
-		`${field}\\s*(?:=\\s*[\`"]([^\`"]+)[\`"]|IN\\s*\\[([^\\]]+)\\])`,
-		'g',
-	)
+	const pattern = new RegExp(`${field}\\s*(?:=\\s*[\`"]([^\`"]+)[\`"]|IN\\s*\\[([^\\]]+)\\])`, 'g')
 	for (const match of filters.matchAll(pattern)) {
 		if (match[1]) {
 			values.push(match[1])
@@ -1077,7 +1071,7 @@ function stripCurseForgeOnlyCategoryFilters(requestParams: string) {
 		.flatMap((part) => {
 			if (!part.includes('categories') || !part.includes('cf:')) return [part]
 
-			const equalMatch = /^categories\s*=\s*[\`"]([^\`"]+)[\`"]$/.exec(part)
+			const equalMatch = /^categories\s*=\s*[`"]([^`"]+)[`"]$/.exec(part)
 			if (equalMatch) {
 				return equalMatch[1].startsWith('cf:') ? [] : [part]
 			}
@@ -1089,9 +1083,7 @@ function stripCurseForgeOnlyCategoryFilters(requestParams: string) {
 				)
 				if (kept.length === 0) return []
 				if (kept.length === 1) return [`categories = \`${kept[0]}\``]
-				return [
-					`categories IN [${kept.map((value) => `\`${value}\``).join(', ')}]`,
-				]
+				return [`categories IN [${kept.map((value) => `\`${value}\``).join(', ')}]`]
 			}
 
 			// Unknown shape containing cf: — drop rather than send invalid MR facets.
@@ -1325,8 +1317,7 @@ function rankChineseProviderHits(hits: ChineseSearchHit[], sort: string | null) 
 	return hits
 		.map((hit, index) => ({ hit, index }))
 		.sort((left, right) => {
-			const score =
-				(right.hit.chinese_search_score ?? 0) - (left.hit.chinese_search_score ?? 0)
+			const score = (right.hit.chinese_search_score ?? 0) - (left.hit.chinese_search_score ?? 0)
 			if (score !== 0) return score
 			const downloads = (right.hit.downloads ?? 0) - (left.hit.downloads ?? 0)
 			if (downloads !== 0) return downloads
@@ -1358,7 +1349,7 @@ async function search(requestParams: string) {
 		) &&
 		categoryValues.some((value) => isCurseForgeOnlyCategoryName(value))
 
-	let includeModrinth =
+	const includeModrinth =
 		(contentSource.value !== 'curseforge' || isServer) &&
 		!(contentSource.value === 'all' && hasOnlyCurseForgeExclusiveCategories)
 	let includeCurseForge =
@@ -1510,9 +1501,7 @@ async function search(requestParams: string) {
 	})
 
 	const directModrinthHits = rawDirectModrinth
-		.filter((project) =>
-			matchesDirectModrinthFilters(project, gameVersion, loader, categoryValues),
-		)
+		.filter((project) => matchesDirectModrinthFilters(project, gameVersion, loader, categoryValues))
 		.slice(0, limit)
 		.map(mapDirectModrinthProject)
 		.map((hit) => applyChineseTranslation(hit, chineseResolution))

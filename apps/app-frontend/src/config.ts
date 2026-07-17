@@ -8,7 +8,7 @@ export const AxolotlBrandConfig = Object.freeze({
 	developerName: 'Mystic Stars',
 	website: 'https://www.ghs.red',
 	sourceUrl: 'https://www.ghs.red',
-	supportUrl: 'https://www.ghs.red',
+	supportUrl: 'https://github.com/Mystic-Stars/Axolotl/issues',
 	bundleIdentifier: 'red.ghs.axolotl',
 	deepLinkScheme: 'axolotl',
 	userAgent: (version: string, os: string) => `garbage-human-studio/axolotl/${version} (${os})`,

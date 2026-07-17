@@ -1,10 +1,4 @@
-export type BrowseMergeSort =
-	| 'relevance'
-	| 'downloads'
-	| 'follows'
-	| 'newest'
-	| 'updated'
-	| string
+export type BrowseMergeSort = 'relevance' | 'downloads' | 'follows' | 'newest' | 'updated' | string
 
 export interface BrowseMergeHit {
 	provider?: 'modrinth' | 'curseforge' | string

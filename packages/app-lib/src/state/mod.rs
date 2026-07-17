@@ -1,8 +1,11 @@
 //! Theseus state management system
 use crate::util::fetch::{FetchSemaphore, IoSemaphore};
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{OnceCell, Semaphore};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::state::instances::watcher::FileWatcher;
 use sqlx::SqlitePool;
@@ -57,7 +60,7 @@ pub mod server_join_log;
 // Global state
 // RwLock on state only has concurrent reads, except for config dir change which takes control of the State
 static LAUNCHER_STATE: OnceCell<Arc<State>> = OnceCell::const_new();
-const MAX_CONCURRENT_INSTALL_JOBS: usize = 3;
+const MAX_CONCURRENT_INSTALL_JOBS: usize = 1;
 pub struct State {
     /// Information on the location of files used in the launcher
     pub directories: DirectoryInfo,
@@ -71,6 +74,7 @@ pub struct State {
     pub api_semaphore: FetchSemaphore,
     pub(crate) install_job_semaphore: Semaphore,
     pub(crate) install_db_semaphore: Semaphore,
+    pub(crate) install_job_cancellations: DashMap<Uuid, CancellationToken>,
 
     /// Discord RPC
     pub discord_rpc: DiscordGuard,
@@ -202,6 +206,7 @@ impl State {
             api_semaphore,
             install_job_semaphore: Semaphore::new(MAX_CONCURRENT_INSTALL_JOBS),
             install_db_semaphore: Semaphore::new(1),
+            install_job_cancellations: DashMap::new(),
             discord_rpc,
             process_manager,
             friends_socket,

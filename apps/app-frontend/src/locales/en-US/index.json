@@ -362,6 +362,177 @@
   "app.curseforge.modpack-installed.title": {
     "message": "CurseForge modpack installed"
   },
+  "app.downloads.all-sources": {
+    "message": "All sources"
+  },
+  "app.downloads.all-statuses": {
+    "message": "All statuses"
+  },
+  "app.downloads.application": {
+    "message": "Application"
+  },
+  "app.downloads.cancel": {
+    "message": "Cancel"
+  },
+  "app.downloads.clear-history": {
+    "message": "Clear history"
+  },
+  "app.downloads.clear-history-title": {
+    "message": "Clear download history?"
+  },
+  "app.downloads.confirm-clear": {
+    "message": "Completed, failed, interrupted, and canceled records will be permanently deleted."
+  },
+  "app.downloads.copy-diagnostics": {
+    "message": "Copy diagnostics"
+  },
+  "app.downloads.delete-record": {
+    "message": "Delete record"
+  },
+  "app.downloads.details": {
+    "message": "Details"
+  },
+  "app.downloads.empty-description": {
+    "message": "New downloads and installation progress will appear here."
+  },
+  "app.downloads.empty-title": {
+    "message": "No downloads yet"
+  },
+  "app.downloads.error-details": {
+    "message": "Download failed"
+  },
+  "app.downloads.hide-details": {
+    "message": "Hide details"
+  },
+  "app.downloads.history": {
+    "message": "History"
+  },
+  "app.downloads.in-progress": {
+    "message": "In progress"
+  },
+  "app.downloads.instance-deleted": {
+    "message": "Instance deleted"
+  },
+  "app.downloads.instance-target": {
+    "message": "Instance: {instance}"
+  },
+  "app.downloads.item-name": {
+    "message": "File"
+  },
+  "app.downloads.item-progress": {
+    "message": "Downloaded"
+  },
+  "app.downloads.item-status": {
+    "message": "Status"
+  },
+  "app.downloads.item-status.completed": {
+    "message": "Completed"
+  },
+  "app.downloads.item-status.downloading": {
+    "message": "Downloading"
+  },
+  "app.downloads.item-status.skipped": {
+    "message": "Skipped"
+  },
+  "app.downloads.item-status.verifying": {
+    "message": "Verifying"
+  },
+  "app.downloads.item-status.writing": {
+    "message": "Writing"
+  },
+  "app.downloads.local": {
+    "message": "Local"
+  },
+  "app.downloads.no-file-details": {
+    "message": "No file details were recorded for this download."
+  },
+  "app.downloads.no-file-details-title": {
+    "message": "No file details"
+  },
+  "app.downloads.no-results-description": {
+    "message": "Try changing your search or filters."
+  },
+  "app.downloads.no-results-title": {
+    "message": "No matching downloads"
+  },
+  "app.downloads.not-available": {
+    "message": "—"
+  },
+  "app.downloads.open-instance": {
+    "message": "Open instance"
+  },
+  "app.downloads.phase.downloading-content": {
+    "message": "Downloading content"
+  },
+  "app.downloads.phase.downloading-minecraft": {
+    "message": "Downloading Minecraft"
+  },
+  "app.downloads.phase.downloading-pack-file": {
+    "message": "Downloading modpack"
+  },
+  "app.downloads.phase.extracting-overrides": {
+    "message": "Extracting overrides"
+  },
+  "app.downloads.phase.finalizing": {
+    "message": "Finalizing"
+  },
+  "app.downloads.phase.preparing-instance": {
+    "message": "Preparing instance"
+  },
+  "app.downloads.phase.preparing-java": {
+    "message": "Preparing Java"
+  },
+  "app.downloads.phase.reading-pack-manifest": {
+    "message": "Reading manifest"
+  },
+  "app.downloads.phase.resolving-loader": {
+    "message": "Resolving loader"
+  },
+  "app.downloads.phase.resolving-minecraft": {
+    "message": "Resolving Minecraft"
+  },
+  "app.downloads.phase.resolving-pack": {
+    "message": "Resolving modpack"
+  },
+  "app.downloads.phase.rolling-back": {
+    "message": "Rolling back changes"
+  },
+  "app.downloads.phase.running-loader-processors": {
+    "message": "Installing loader"
+  },
+  "app.downloads.progress": {
+    "message": "Progress"
+  },
+  "app.downloads.retry": {
+    "message": "Retry"
+  },
+  "app.downloads.search": {
+    "message": "Search downloads"
+  },
+  "app.downloads.status.canceled": {
+    "message": "Canceled"
+  },
+  "app.downloads.status.canceling": {
+    "message": "Canceling"
+  },
+  "app.downloads.status.failed": {
+    "message": "Failed"
+  },
+  "app.downloads.status.interrupted": {
+    "message": "Interrupted"
+  },
+  "app.downloads.status.queued": {
+    "message": "Queued"
+  },
+  "app.downloads.status.running": {
+    "message": "Running"
+  },
+  "app.downloads.status.succeeded": {
+    "message": "Completed"
+  },
+  "app.downloads.status.waiting-for-user": {
+    "message": "Action needed"
+  },
   "app.error.account-description": {
     "message": "Check that you signed in with the correct account. You may own Minecraft on another Microsoft account."
   },
@@ -1031,6 +1202,9 @@
   "app.navigation.discover-content": {
     "message": "Discover content"
   },
+  "app.navigation.downloads": {
+    "message": "Downloads"
+  },
   "app.navigation.home": {
     "message": "Home"
   },
@@ -1127,6 +1301,9 @@
   "app.settings.about.developer": {
     "message": "Developed by {developerName} at {organizationName}."
   },
+  "app.settings.about.mcmod-website": {
+    "message": "Visit MC Encyclopedia"
+  },
   "app.settings.about.original-source": {
     "message": "View the original Modrinth source code"
   },
@@ -1138,9 +1315,6 @@
   },
   "app.settings.about.project-website": {
     "message": "Visit the project website"
-  },
-  "app.settings.about.mcmod-website": {
-    "message": "Visit MC Encyclopedia"
   },
   "app.settings.about.version": {
     "message": "Version {version}"

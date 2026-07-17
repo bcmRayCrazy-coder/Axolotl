@@ -61,6 +61,8 @@ fn result_summary(
         InstallJobStatus::Running => {
             format!("running while {}", phase_label(snapshot.phase))
         }
+        InstallJobStatus::Canceling => "canceling".to_string(),
+        InstallJobStatus::WaitingForUser => "waiting for user".to_string(),
         InstallJobStatus::Succeeded => "succeeded".to_string(),
         InstallJobStatus::Canceled => snapshot
             .error
@@ -200,7 +202,8 @@ fn timeline_event_description(event: &InstallJobEvent) -> Option<String> {
         }
         InstallJobEventKind::ContentDownloadStarted { .. }
         | InstallJobEventKind::ContentFileSkipped { .. }
-        | InstallJobEventKind::ContentFileCompleted { .. } => None,
+        | InstallJobEventKind::ContentFileCompleted { .. }
+        | InstallJobEventKind::TargetInstanceDeleted { .. } => None,
     }
 }
 

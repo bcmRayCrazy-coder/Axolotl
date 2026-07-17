@@ -33,11 +33,20 @@ struct InstallJobRow {
 
 impl InstallJobRecord {
     pub fn snapshot(&self) -> InstallJobSnapshot {
+        let summary = self.state.download_summary();
+        let items = self.state.download_items();
+        let recorded_instance_id = instance_id(&self.state);
+        let instance_deleted = self.state.instance_deleted()
+            || (self.status == InstallJobStatus::Succeeded
+                && self.instance_id.is_none()
+                && recorded_instance_id.is_some());
         InstallJobSnapshot {
             job_id: self.id,
-            instance_id: self.instance_id.clone(),
+            instance_id: self.instance_id.clone().or(recorded_instance_id),
+            instance_deleted,
             kind: self.kind,
             status: self.status,
+            provider: self.state.provider(),
             target: self.state.target.clone(),
             phase: self.state.progress.phase,
             progress: self.state.progress.progress.clone(),
@@ -48,6 +57,8 @@ impl InstallJobRecord {
             created: self.created,
             modified: self.modified,
             finished: self.finished,
+            summary,
+            items,
         }
     }
 }
@@ -85,6 +96,8 @@ pub async fn insert(
     )
     .execute(&app_state.pool)
     .await?;
+
+    sync_download_details(id, state, app_state).await?;
 
     get(id, app_state).await?.ok_or_else(|| {
         crate::ErrorKind::OtherError(format!(
@@ -177,7 +190,7 @@ pub async fn list(
 pub async fn list_interrupted_candidates(
     app_state: &State,
 ) -> crate::Result<Vec<InstallJobRecord>> {
-    let rows = sqlx::query_as!(
+    let mut rows = sqlx::query_as!(
         InstallJobRow,
         "
 		SELECT
@@ -197,6 +210,30 @@ pub async fn list_interrupted_candidates(
     )
     .fetch_all(&app_state.pool)
     .await?;
+
+    use sqlx::Row;
+    let canceling_rows = sqlx::query(
+        "SELECT id, instance_id, kind, status, state, created, modified,
+                finished, dismissed
+         FROM install_jobs
+         WHERE status = 'canceling'
+         ORDER BY created ASC",
+    )
+    .fetch_all(&app_state.pool)
+    .await?;
+    for row in canceling_rows {
+        rows.push(InstallJobRow {
+            id: row.try_get("id")?,
+            instance_id: row.try_get("instance_id")?,
+            kind: row.try_get("kind")?,
+            status: row.try_get("status")?,
+            state: row.try_get("state")?,
+            created: row.try_get("created")?,
+            modified: row.try_get("modified")?,
+            finished: row.try_get("finished")?,
+            dismissed: row.try_get("dismissed")?,
+        });
+    }
 
     rows.into_iter().map(row_to_record).collect()
 }
@@ -225,6 +262,8 @@ pub async fn update_state(
     )
     .execute(&app_state.pool)
     .await?;
+
+    sync_download_details(id, state, app_state).await?;
 
     get_required(id, app_state).await
 }
@@ -259,6 +298,8 @@ pub async fn update_status(
     .execute(&app_state.pool)
     .await?;
 
+    sync_download_details(id, state, app_state).await?;
+
     get_required(id, app_state).await
 }
 
@@ -278,6 +319,73 @@ pub async fn dismiss(id: Uuid, app_state: &State) -> crate::Result<()> {
     .await?;
 
     Ok(())
+}
+
+pub async fn clear_finished(app_state: &State) -> crate::Result<u64> {
+    let modified = Utc::now().timestamp();
+    let result = sqlx::query(
+        "UPDATE install_jobs
+         SET dismissed = 1, modified = ?
+         WHERE dismissed = 0
+           AND status IN ('succeeded', 'failed', 'interrupted', 'canceled')",
+    )
+    .bind(modified)
+    .execute(&app_state.pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn mark_instance_deleted(
+    instance_id: &str,
+    app_state: &State,
+) -> crate::Result<Vec<InstallJobRecord>> {
+    use sqlx::Row;
+
+    let rows = sqlx::query(
+        "
+		SELECT
+			id,
+			instance_id,
+			kind,
+			status,
+			state,
+			created,
+			modified,
+			finished,
+			dismissed
+		FROM install_jobs
+		WHERE instance_id = ? AND dismissed = 0
+		",
+    )
+    .bind(instance_id)
+    .fetch_all(&app_state.pool)
+    .await?;
+
+    let mut updated = Vec::new();
+    for row in rows {
+        let mut record = row_to_record(InstallJobRow {
+            id: row.try_get("id")?,
+            instance_id: row.try_get("instance_id")?,
+            kind: row.try_get("kind")?,
+            status: row.try_get("status")?,
+            state: row.try_get("state")?,
+            created: row.try_get("created")?,
+            modified: row.try_get("modified")?,
+            finished: row.try_get("finished")?,
+            dismissed: row.try_get("dismissed")?,
+        })?;
+        if record.state.instance_deleted() {
+            updated.push(record);
+            continue;
+        }
+        record.state.record_event(
+            super::model::InstallJobEventKind::TargetInstanceDeleted {
+                instance_id: instance_id.to_string(),
+            },
+        );
+        updated.push(update_state(record.id, &record.state, app_state).await?);
+    }
+    Ok(updated)
 }
 
 pub async fn get_required(
@@ -327,4 +435,61 @@ fn timestamp(value: i64) -> DateTime<Utc> {
 
 fn optional_timestamp(value: i64) -> Option<DateTime<Utc>> {
     Utc.timestamp_opt(value, 0).single()
+}
+
+async fn sync_download_details(
+    id: Uuid,
+    state: &InstallJobState,
+    app_state: &State,
+) -> crate::Result<()> {
+    let id_value = id.to_string();
+    let summary = state.download_summary();
+    sqlx::query(
+        "UPDATE install_jobs
+         SET provider = ?, files_total = ?, files_completed = ?,
+             bytes_total = ?, bytes_downloaded = ?
+         WHERE id = ?",
+    )
+    .bind(state.provider().as_str())
+    .bind(summary.files_total.map(|value| value as i64))
+    .bind(summary.files_completed as i64)
+    .bind(summary.bytes_total.map(|value| value as i64))
+    .bind(summary.bytes_downloaded as i64)
+    .bind(&id_value)
+    .execute(&app_state.pool)
+    .await?;
+
+    let now = Utc::now().timestamp();
+    for item in state.download_items() {
+        let status = format!("{:?}", item.status).to_ascii_lowercase();
+        sqlx::query(
+            "INSERT INTO install_job_items (
+                id, job_id, name, status, bytes_total, bytes_downloaded,
+                error, manual_url, created, modified, finished
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(job_id, id) DO UPDATE SET
+                name = excluded.name,
+                status = excluded.status,
+                bytes_total = excluded.bytes_total,
+                bytes_downloaded = excluded.bytes_downloaded,
+                error = excluded.error,
+                manual_url = excluded.manual_url,
+                modified = excluded.modified,
+                finished = excluded.finished",
+        )
+        .bind(item.id)
+        .bind(&id_value)
+        .bind(item.name)
+        .bind(status)
+        .bind(item.bytes_total.map(|value| value as i64))
+        .bind(item.bytes_downloaded as i64)
+        .bind(item.error)
+        .bind(item.manual_url)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .execute(&app_state.pool)
+        .await?;
+    }
+    Ok(())
 }

@@ -639,35 +639,19 @@ export function createContentInstall(opts: {
 		createInstanceCallback(createdInstanceId)
 		addInstallingItem(createdInstanceId, project, version)
 		try {
-			// Wait for the instance shell/job to settle before writing pack content.
 			await wait_for_install_job(job.job_id)
-			// Re-assert the association after the create job finishes so later install
-			// stages cannot leave the instance as unmanaged.
-			await edit(createdInstanceId, {
-				link: curseForgeLink,
-			})
-			const result = await installCurrentCurseForgeVersion(
-				{
-					id: createdInstanceId,
-					name: project.title,
-					game_version: gameVersion,
-					loader,
-				},
-				project,
-				version,
-				true,
-			)
 			await edit(createdInstanceId, {
 				link: curseForgeLink,
 			})
 			removeInstallingItems(createdInstanceId, [project.id])
+			markInstanceContentChanged(createdInstanceId)
 			trackEvent('PackInstall', {
 				id: project.id,
 				version_id: version.id,
 				title: project.title,
 				source,
 			})
-			callback(result.primaryInstalled ? version.id : undefined, result.installedProjectIds)
+			callback(version.id, [project.id])
 		} catch (err) {
 			// Best-effort: still keep the managed association for settings/update UI.
 			await edit(createdInstanceId, {
@@ -1229,7 +1213,11 @@ export function createContentInstall(opts: {
 				await addInstallingItemsForPlan(id, plan, currentProject!, version)
 				installedProjectIds = resolvedProjectIds(plan)
 			}
-			await opts.router.push(`/instance/${encodeURIComponent(id)}`)
+			await opts.router.push(
+				currentProvider === 'curseforge' && currentProject?.project_type === 'modpack'
+					? '/downloads'
+					: `/instance/${encodeURIComponent(id)}`,
+			)
 
 			trackEvent('InstanceCreate', {
 				source: 'ProjectInstallModal',

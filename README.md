@@ -4,7 +4,7 @@
 [![Release](https://github.com/Mystic-Stars/Axolotl/actions/workflows/axolotl-release.yml/badge.svg)](https://github.com/Mystic-Stars/Axolotl/actions/workflows/axolotl-release.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](COPYING.md)
 
-Axolotl Launcher 是由 Garbage Human Studio 维护、Mystic Stars 开发的免费跨平台 Minecraft 启动器。
+Axolotl Launcher 是由 Mystic Stars 开发的免费跨平台 Minecraft 启动器。
 
 本项目基于 Modrinth 单体仓库进行下游开发，专注于桌面启动器体验。它是使用 Modrinth 公共 API 的独立非官方客户端，与 Rinth, Inc. 不存在隶属或背书关系。
 
@@ -106,4 +106,4 @@ Modrinth 网站和后端并不是 Axolotl 产品。`upstream` 远程指向 Modri
 
 桌面相关包继续使用 **GPL-3.0-only** 许可证。详情请查看各包中的 `LICENSE`、`COPYING.md` 以及仓库根目录的 [`COPYING.md`](COPYING.md)。
 
-官方网站：[https://www.ghs.red](https://www.ghs.red)
+官方网站：[https://www.axlmc.org](https://www.axlmc.org)

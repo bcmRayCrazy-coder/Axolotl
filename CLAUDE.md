@@ -60,6 +60,16 @@ The website and app `prepr` commands
 - **App:** `pnpm app:dev` (copy `.env` template in `packages/app-lib/` first)
 - **Storybook (packages/ui):** `pnpm storybook`
 
+## Codex Development Workflow
+
+### Local App Verification
+- After completing a development task, start the local development app with `pnpm app:dev` and leave functional verification to the user.
+- Do not take screenshots or perform automated, visual, or manual self-testing of the local app.
+
+### Remote Commits
+- Before pushing a remote commit, inspect its changed paths. If it does not change the desktop app (`apps/app/`, `apps/app-frontend/`) or its app-specific dependencies, prevent unnecessary GitHub Actions usage by including `[skip ci]` in the commit message.
+- Never use `[skip ci]` for commits that affect the desktop app or its build, packaging, or runtime dependencies.
+
 ## Project-Specific Instructions
 
 Each project may have its own file with detailed instructions:

@@ -22,8 +22,7 @@ export function containsChineseSearchText(query: string): boolean {
 }
 
 export function resolveChineseContentSearch(query: string) {
-	return invoke<ChineseSearchResolution>(
-		'plugin:content-search|resolve_chinese_content_search',
-		{ query },
-	)
+	return invoke<ChineseSearchResolution>('plugin:content-search|resolve_chinese_content_search', {
+		query,
+	})
 }

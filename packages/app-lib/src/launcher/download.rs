@@ -149,8 +149,10 @@ async fn fetch_minecraft_file(
     progress: Option<MinecraftDownloadProgress>,
     context: InstallErrorContext,
 ) -> crate::Result<bytes::Bytes> {
+    let mirrors = minecraft_library_mirrors(url);
+    let mirror_refs = mirrors.iter().map(String::as_str).collect::<Vec<_>>();
     let mut context = context;
-    context.urls.push(url.to_string());
+    context.urls.extend(mirrors.iter().cloned());
     context.expected_hash = sha1.map(str::to_string);
     context.expected_size = expected_size;
     if let Some(progress) = &progress {
@@ -158,8 +160,15 @@ async fn fetch_minecraft_file(
     }
 
     let Some(progress) = progress else {
-        return fetch(url, sha1, None, None, &st.fetch_semaphore, &st.pool)
-            .await;
+        return fetch_mirrors(
+            &mirror_refs,
+            sha1,
+            None,
+            None,
+            &st.fetch_semaphore,
+            &st.pool,
+        )
+        .await;
     };
 
     let last_downloaded = Arc::new(AtomicU64::new(0));
@@ -177,13 +186,9 @@ async fn fetch_minecraft_file(
         }
     };
 
-    let bytes = match fetch_advanced_with_progress(
-        Method::GET,
-        url,
+    let bytes = match fetch_mirrors_with_progress(
+        &mirror_refs,
         sha1,
-        None,
-        None,
-        None,
         None,
         None,
         &st.fetch_semaphore,
@@ -207,6 +212,17 @@ async fn fetch_minecraft_file(
     }
 
     Ok(bytes)
+}
+
+fn minecraft_library_mirrors(url: &str) -> Vec<String> {
+    const MACHINA_LWJGL_RELEASE: &str = "https://github.com/MinecraftMachina/lwjgl/releases/download/2.9.4-20150209-mmachina.2/";
+    const MOJANG_LWJGL_PATH: &str = "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/";
+
+    let mut mirrors = vec![url.to_string()];
+    if let Some(file_name) = url.strip_prefix(MACHINA_LWJGL_RELEASE) {
+        mirrors.push(format!("{MOJANG_LWJGL_PATH}{file_name}"));
+    }
+    mirrors
 }
 
 fn should_download(path_exists: bool, force: bool) -> bool {

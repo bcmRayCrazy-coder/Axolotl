@@ -1,12 +1,12 @@
 <template>
 	<div class="flex gap-2 items-center">
 		<ButtonStyled
-			v-if="hasActiveLoadingBars && !hasVisibleActiveDownloadToasts"
+			v-if="!isDownloadsPage && hasActiveLoadingBars && !hasVisibleActiveDownloadToasts"
 			color="brand"
 			type="transparent"
 			circular
 		>
-			<button v-tooltip="formatMessage(messages.viewActiveDownloads)" @click="openDownloadToast()">
+			<button v-tooltip="formatMessage(messages.viewActiveDownloads)" @click="goToDownloads">
 				<DownloadIcon />
 			</button>
 		</ButtonStyled>
@@ -136,8 +136,8 @@ import {
 } from '@modrinth/ui'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { Dropdown } from 'floating-vue'
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import AppUpdateButton from '@/components/ui/app-update-button/index.vue'
 import { useInstallJobNotifications } from '@/composables/browse/install-job-notifications'
@@ -149,12 +149,18 @@ import { get_all as getRunningProcesses, kill as killProcess } from '@/helpers/p
 import type { LoadingBar } from '@/helpers/state'
 import { progress_bars_list } from '@/helpers/state'
 import type { GameInstance } from '@/helpers/types'
+import { injectDownloadManager } from '@/providers/download-manager'
 
 const { handleError } = injectNotificationManager()
 const popupNotificationManager = injectPopupNotificationManager()
+const downloadManager = injectDownloadManager()
 const { formatMessage } = useVIntl()
 
 const router = useRouter()
+const route = useRoute()
+const isDownloadsPage = computed(
+	() => route.path === '/downloads' || route.path.startsWith('/downloads/'),
+)
 
 const showInstances = ref(false)
 
@@ -352,6 +358,11 @@ const hasActiveLoadingBars = computed(
 )
 
 function updateNotification(resummon = false): void {
+	if (isDownloadsPage.value) {
+		removeNotification()
+		return
+	}
+
 	if (resummon) {
 		dismissed.value = false
 	}
@@ -381,6 +392,7 @@ function updateNotification(resummon = false): void {
 		notif.text = undefined
 		notif.progressItems = progressItems
 		notif.buttons = installJobNotifications.buttons.value
+		notif.onClick = goToDownloads
 		notif.progress = undefined
 		notif.waiting = undefined
 	} else {
@@ -392,6 +404,7 @@ function updateNotification(resummon = false): void {
 			autoCloseMs: null,
 			progressItems,
 			buttons: installJobNotifications.buttons.value,
+			onClick: goToDownloads,
 		})
 		notificationId.value = notif.id
 	}
@@ -470,6 +483,7 @@ async function refreshLoadingBars() {
 
 const installJobNotifications = await useInstallJobNotifications({
 	router,
+	manager: downloadManager,
 	handleError,
 	onChange: updateNotification,
 })
@@ -480,9 +494,14 @@ const unlistenLoading = await loading_listener(async () => {
 	await refreshLoadingBars()
 })
 
-function openDownloadToast() {
-	updateNotification(true)
+function goToDownloads() {
+	router.push('/downloads')
 }
+
+watch(
+	() => route.path,
+	() => updateNotification(),
+)
 
 function selectProcess(process: RunningProcess) {
 	selectedProcess.value = process

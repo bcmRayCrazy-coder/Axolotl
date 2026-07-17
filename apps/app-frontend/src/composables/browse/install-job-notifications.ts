@@ -7,13 +7,11 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Router } from 'vue-router'
 
-import { install_job_listener } from '@/helpers/events'
 import {
 	install_job_dismiss,
-	install_job_list,
 	install_job_retry,
 	install_job_support_details,
 	installJobInstanceId,
@@ -23,6 +21,7 @@ import {
 	type InstallProgress,
 } from '@/helpers/install'
 import { get_many as getInstances } from '@/helpers/instance'
+import type { DownloadManager } from '@/providers/download-manager'
 
 const messages = defineMessages({
 	installs: {
@@ -216,7 +215,14 @@ const failureSummaryMessages = defineMessages({
 	},
 })
 
-const visibleJobStatuses = new Set<InstallJobStatus>(['queued', 'running', 'failed', 'interrupted'])
+const visibleJobStatuses = new Set<InstallJobStatus>([
+	'queued',
+	'running',
+	'canceling',
+	'waiting_for_user',
+	'failed',
+	'interrupted',
+])
 const copyDetailsStallMs = 30_000
 
 interface ProgressSnapshot {
@@ -233,6 +239,7 @@ function getDisplayIconUrl(icon: string | null | undefined): string | null {
 
 export async function useInstallJobNotifications(opts: {
 	router: Router
+	manager: DownloadManager
 	handleError: (err: unknown) => void
 	onChange: () => void
 }) {
@@ -690,10 +697,10 @@ export async function useInstallJobNotifications(opts: {
 
 	async function refresh(notify = true) {
 		const request = ++refreshRequest
-		const nextJobs = await install_job_list(false).catch((error) => {
+		await opts.manager.refresh().catch((error) => {
 			opts.handleError(error)
-			return []
 		})
+		const nextJobs = opts.manager.jobs.value
 
 		if (request !== refreshRequest) {
 			return
@@ -711,20 +718,16 @@ export async function useInstallJobNotifications(opts: {
 		}
 	}
 
-	function applyJobUpdate(job: InstallJobSnapshot) {
-		refreshRequest += 1
-		const existingJob = jobs.value.find((item) => item.job_id === job.job_id)
-		if (existingJob && existingJob.modified.localeCompare(job.modified) > 0) {
-			return
-		}
-
-		setJobs([...jobs.value.filter((item) => item.job_id !== job.job_id), job])
-		opts.onChange()
-		void refreshMetadata()
-	}
-
-	await refresh(false)
-	const unlisten = await install_job_listener((job: InstallJobSnapshot) => applyJobUpdate(job))
+	setJobs(opts.manager.jobs.value)
+	await refreshMetadata(false)
+	const stopJobsWatch = watch(
+		() => opts.manager.jobs.value,
+		(nextJobs) => {
+			setJobs(nextJobs)
+			opts.onChange()
+			void refreshMetadata()
+		},
+	)
 
 	return {
 		active: computed(() => jobs.value.length > 0),
@@ -739,7 +742,7 @@ export async function useInstallJobNotifications(opts: {
 			for (const jobId of progressSnapshots.keys()) {
 				clearProgressSnapshot(jobId)
 			}
-			unlisten()
+			stopJobsWatch()
 		},
 	}
 }

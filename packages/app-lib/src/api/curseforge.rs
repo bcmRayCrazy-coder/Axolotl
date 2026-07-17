@@ -2,6 +2,10 @@ use crate::event::LoadingBarType;
 use crate::event::emit::{
     emit_loading, init_loading, loading_try_for_each_concurrent,
 };
+use crate::install::{
+    InstallJobEventKind, InstallPhaseDetails, InstallPhaseId, InstallProgress,
+    InstallProgressReporter, InstallProgressSecondary,
+};
 use crate::state::ContentProvider;
 use crate::state::{
     ContentSourceKind, EditInstance, InstanceLink, ProjectType,
@@ -829,6 +833,13 @@ pub async fn install_file(
 pub async fn install_modpack(
     request: CurseForgeModpackInstallRequest,
 ) -> crate::Result<CurseForgeModpackInstallResult> {
+    install_modpack_with_reporter(request, None).await
+}
+
+pub async fn install_modpack_with_reporter(
+    request: CurseForgeModpackInstallRequest,
+    reporter: Option<InstallProgressReporter>,
+) -> crate::Result<CurseForgeModpackInstallResult> {
     let pack_file = get_file(request.project_id, request.file_id).await?;
     let project = get_project(request.project_id).await?;
     let icon_url = project
@@ -914,7 +925,45 @@ pub async fn install_modpack(
     )
     .await?;
 
+    let pack_details = InstallPhaseDetails::Modpack {
+        project_id: Some(request.project_id.to_string()),
+        version_id: Some(request.file_id.to_string()),
+        title: Some(project.name.clone()),
+    };
+    if let Some(reporter) = reporter.as_ref() {
+        reporter
+            .update(
+                InstallPhaseId::DownloadingPackFile,
+                Some(InstallProgress {
+                    current: 0,
+                    total: pack_file.file_length.max(1),
+                    secondary: None,
+                }),
+                pack_details.clone(),
+            )
+            .await?;
+    }
     let pack_bytes = download_cdn_file(&download_url).await?;
+    if let Some(reporter) = reporter.as_ref() {
+        reporter
+            .update(
+                InstallPhaseId::DownloadingPackFile,
+                Some(InstallProgress {
+                    current: pack_bytes.len() as u64,
+                    total: pack_file.file_length.max(pack_bytes.len() as u64),
+                    secondary: None,
+                }),
+                pack_details.clone(),
+            )
+            .await?;
+        reporter
+            .update(
+                InstallPhaseId::ReadingPackManifest,
+                None,
+                pack_details.clone(),
+            )
+            .await?;
+    }
     verify_file(&pack_file, &pack_bytes)?;
     let (manifest, overrides) =
         tokio::task::spawn_blocking(move || read_modpack_archive(&pack_bytes))
@@ -1031,34 +1080,61 @@ pub async fn install_modpack(
     // Keep the LoadingBarId in an Arc. LoadingBarId::Drop removes the bar, so
     // cloning the ID itself would destroy progress as soon as the first task
     // finished. Arc clones only share ownership.
-    let loading_bar = Arc::new(
-        init_loading(
-            LoadingBarType::PackDownload {
-                instance_id: request.instance_id.clone(),
-                pack_name: project.name.clone(),
-                icon: cached_icon_path.clone(),
-                pack_id: Some(request.project_id.to_string()),
-                pack_version: Some(request.file_id.to_string()),
-            },
-            total_files as f64,
-            &format!("Downloading {instance_name}"),
-        )
-        .await?,
-    );
-    let _ = emit_loading(
-        loading_bar.as_ref(),
-        0.0,
-        Some(&format!(
-            "0/{total_files} files · 0 / {}",
-            format_bytes(content_total_bytes)
-        )),
-    );
+    let loading_bar = if reporter.is_none() {
+        Some(Arc::new(
+            init_loading(
+                LoadingBarType::PackDownload {
+                    instance_id: request.instance_id.clone(),
+                    pack_name: project.name.clone(),
+                    icon: cached_icon_path.clone(),
+                    pack_id: Some(request.project_id.to_string()),
+                    pack_version: Some(request.file_id.to_string()),
+                },
+                total_files as f64,
+                &format!("Downloading {instance_name}"),
+            )
+            .await?,
+        ))
+    } else {
+        None
+    };
+    if let Some(loading_bar) = loading_bar.as_ref() {
+        let _ = emit_loading(
+            loading_bar.as_ref(),
+            0.0,
+            Some(&format!(
+                "0/{total_files} files · 0 / {}",
+                format_bytes(content_total_bytes)
+            )),
+        );
+    }
+    if let Some(reporter) = reporter.as_ref() {
+        reporter
+            .update_with_events(
+                InstallPhaseId::DownloadingContent,
+                Some(InstallProgress {
+                    current: 0,
+                    total: total_files as u64,
+                    secondary: Some(InstallProgressSecondary {
+                        current: 0,
+                        total: content_total_bytes,
+                    }),
+                }),
+                pack_details.clone(),
+                vec![InstallJobEventKind::ContentDownloadStarted {
+                    files: total_files as u64,
+                    bytes: Some(content_total_bytes),
+                }],
+            )
+            .await?;
+    }
 
     let content = Arc::new(Mutex::new(CurseForgeInstallResult::default()));
     let projects = Arc::new(projects);
     let file_meta = Arc::new(file_meta);
     let files_done = Arc::new(AtomicU64::new(0));
     let bytes_done = Arc::new(AtomicU64::new(0));
+    let active_downloads = Arc::new(AtomicU64::new(0));
     let instance_id = request.instance_id.clone();
     let minecraft_version = manifest.minecraft.version.clone();
     let loader_type_value = loader.as_deref().and_then(loader_type);
@@ -1077,7 +1153,10 @@ pub async fn install_modpack(
 			let file_meta = file_meta.clone();
 			let files_done = files_done.clone();
 			let bytes_done = bytes_done.clone();
+			let active_downloads = active_downloads.clone();
 			let loading_bar = loading_bar.clone();
+			let reporter = reporter.clone();
+			let pack_details = pack_details.clone();
 			let instance_id = instance_id.clone();
 			let minecraft_version = minecraft_version.clone();
 			async move {
@@ -1105,17 +1184,27 @@ pub async fn install_modpack(
 						});
 					}
 					report_modpack_progress(
-						loading_bar.as_ref(),
+						loading_bar.as_deref(),
+						reporter.as_ref(),
+						pack_details,
 						&files_done,
 						&bytes_done,
+						&active_downloads,
 						total_files as u64,
 						content_total_bytes,
-						expected_bytes.max(file.file_length),
-					)?;
+						0,
+						InstallJobEventKind::ContentFileSkipped {
+							path: file.file_name,
+							reason: "CurseForge requires this file to be downloaded manually"
+								.to_string(),
+						},
+					)
+					.await?;
 					return Ok(());
 				}
 
-				match install_file(CurseForgeInstallRequest {
+				active_downloads.fetch_add(1, Ordering::Relaxed);
+				let (item_event, downloaded_bytes) = match install_file(CurseForgeInstallRequest {
 					instance_id,
 					project_id: manifest_file.project_id,
 					file_id: manifest_file.file_id,
@@ -1128,8 +1217,25 @@ pub async fn install_modpack(
 				.await
 				{
 					Ok(item_result) => {
+						let completed_path = item_result
+							.installed
+							.first()
+							.map(|item| item.relative_path.clone())
+							.unwrap_or_else(|| {
+								format!(
+									"project-{}-file-{}",
+									manifest_file.project_id, manifest_file.file_id
+								)
+							});
 						let mut content = content.lock().expect("content mutex");
 						merge_install_result(&mut content, item_result);
+						(
+							InstallJobEventKind::ContentFileCompleted {
+								path: completed_path,
+								bytes: expected_bytes,
+							},
+							expected_bytes,
+						)
 					}
 					Err(err) => {
 						tracing::warn!(
@@ -1151,16 +1257,32 @@ pub async fn install_modpack(
 									project.links.website_url.clone()
 								}),
 						});
+						(
+							InstallJobEventKind::ContentFileSkipped {
+								path: format!(
+									"project-{}-file-{}",
+									manifest_file.project_id, manifest_file.file_id
+								),
+								reason: err.to_string(),
+							},
+							0,
+						)
 					}
-				}
+				};
+				active_downloads.fetch_sub(1, Ordering::Relaxed);
 				report_modpack_progress(
-					loading_bar.as_ref(),
+					loading_bar.as_deref(),
+					reporter.as_ref(),
+					pack_details,
 					&files_done,
 					&bytes_done,
+					&active_downloads,
 					total_files as u64,
 					content_total_bytes,
-					expected_bytes,
-				)?;
+					downloaded_bytes,
+					item_event,
+				)
+				.await?;
 				Ok(())
 			}
 		},
@@ -1183,6 +1305,11 @@ pub async fn install_modpack(
 
     let instance_path =
         crate::api::instance::get_full_path(&request.instance_id).await?;
+    if let Some(reporter) = reporter.as_ref() {
+        reporter
+            .update(InstallPhaseId::ExtractingOverrides, None, pack_details)
+            .await?;
+    }
     let mut overrides_written = 0;
     for (relative_path, bytes) in overrides {
         let target = instance_path.join(&relative_path);
@@ -1661,28 +1788,54 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn report_modpack_progress(
-    loading_bar: &crate::event::LoadingBarId,
+async fn report_modpack_progress(
+    loading_bar: Option<&crate::event::LoadingBarId>,
+    reporter: Option<&InstallProgressReporter>,
+    details: InstallPhaseDetails,
     files_done: &AtomicU64,
     bytes_done: &AtomicU64,
+    active_downloads: &AtomicU64,
     total_files: u64,
     total_bytes: u64,
     file_bytes: u64,
+    event: InstallJobEventKind,
 ) -> crate::Result<()> {
     let current_files = files_done.fetch_add(1, Ordering::Relaxed) + 1;
     let current_bytes =
         bytes_done.fetch_add(file_bytes, Ordering::Relaxed) + file_bytes;
+    let active = active_downloads.load(Ordering::Relaxed);
     let message = if total_bytes > 0 {
         format!(
-            "{current_files}/{total_files} files · {} / {}",
+            "{current_files}/{total_files} files · {} / {} · {active} downloading in parallel",
             format_bytes(current_bytes.min(total_bytes)),
             format_bytes(total_bytes)
         )
     } else {
-        format!("{current_files}/{total_files} files")
+        format!(
+            "{current_files}/{total_files} files · {active} downloading in parallel"
+        )
     };
-    // Advance the bar by one file and refresh the human-readable status text.
-    emit_loading(loading_bar, 1.0, Some(&message))
+    if let Some(loading_bar) = loading_bar {
+        emit_loading(loading_bar, 1.0, Some(&message))?;
+    }
+    if let Some(reporter) = reporter {
+        reporter
+            .update_with_events(
+                InstallPhaseId::DownloadingContent,
+                Some(InstallProgress {
+                    current: current_files,
+                    total: total_files,
+                    secondary: Some(InstallProgressSecondary {
+                        current: current_bytes.min(total_bytes),
+                        total: total_bytes,
+                    }),
+                }),
+                details,
+                vec![event],
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 async fn download_cdn_file(url: &str) -> crate::Result<Bytes> {

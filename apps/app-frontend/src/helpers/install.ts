@@ -47,6 +47,8 @@ export interface InstallPostInstallEdit {
 export type InstallJobStatus =
 	| 'queued'
 	| 'running'
+	| 'canceling'
+	| 'waiting_for_user'
 	| 'succeeded'
 	| 'failed'
 	| 'interrupted'
@@ -118,6 +120,7 @@ export interface InstallErrorView {
 export interface InstallJobSnapshot {
 	job_id: string
 	instance_id?: string | null
+	instance_deleted: boolean
 	kind:
 		| 'create_instance'
 		| 'create_modpack_instance'
@@ -126,6 +129,7 @@ export interface InstallJobSnapshot {
 		| 'install_existing_instance'
 		| 'install_pack_to_existing_instance'
 	status: InstallJobStatus
+	provider: 'modrinth' | 'curse_forge' | 'minecraft' | 'java' | 'application' | 'local'
 	target:
 		| { type: 'new_instance'; instance_id?: string | null }
 		| { type: 'existing_instance'; instance_id: string }
@@ -149,6 +153,43 @@ export interface InstallJobSnapshot {
 	created: string
 	modified: string
 	finished?: string | null
+	summary: {
+		files_completed: number
+		files_total?: number | null
+		bytes_downloaded: number
+		bytes_total?: number | null
+	}
+	items: Array<{
+		id: string
+		name: string
+		status:
+			| 'queued'
+			| 'downloading'
+			| 'verifying'
+			| 'writing'
+			| 'waiting_for_user'
+			| 'completed'
+			| 'skipped'
+			| 'failed'
+			| 'canceled'
+		bytes_downloaded: number
+		bytes_total?: number | null
+		error?: string | null
+		manual_url?: string | null
+	}>
+}
+
+export interface DownloadJobListRequest {
+	status?: InstallJobStatus
+	provider?: InstallJobSnapshot['provider']
+	query?: string
+	cursor?: string
+	limit?: number
+}
+
+export interface DownloadJobPage {
+	jobs: InstallJobSnapshot[]
+	nextCursor?: string | null
 }
 
 export async function install_get_modpack_preview(location: CreatePackLocation) {
@@ -230,6 +271,34 @@ export async function install_job_dismiss(jobId: string) {
 
 export async function install_job_support_details(jobId: string) {
 	return await invoke<string>('plugin:install|install_job_support_details', { jobId })
+}
+
+export async function download_job_list(request: DownloadJobListRequest = {}) {
+	return await invoke<DownloadJobPage>('plugin:install|download_job_list', { request })
+}
+
+export async function download_job_get(jobId: string) {
+	return await invoke<InstallJobSnapshot>('plugin:install|download_job_get', { jobId })
+}
+
+export async function download_job_retry(jobId: string) {
+	return await invoke<InstallJobSnapshot>('plugin:install|download_job_retry', { jobId })
+}
+
+export async function download_job_cancel(jobId: string) {
+	return await invoke<InstallJobSnapshot>('plugin:install|download_job_cancel', { jobId })
+}
+
+export async function download_job_delete(jobId: string) {
+	return await invoke<void>('plugin:install|download_job_delete', { jobId })
+}
+
+export async function download_history_clear() {
+	return await invoke<number>('plugin:install|download_history_clear')
+}
+
+export async function download_job_support_details(jobId: string) {
+	return await invoke<string>('plugin:install|download_job_support_details', { jobId })
 }
 
 export function installJobInstanceId(job: InstallJobSnapshot): string | null {

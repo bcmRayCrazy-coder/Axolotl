@@ -93,6 +93,113 @@ impl InstallJobState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job_state() -> InstallJobState {
+        InstallJobState::new(InstallRequest::CreateInstance {
+            name: "Test".to_string(),
+            game_version: "1.21.1".to_string(),
+            loader: ModLoader::Vanilla,
+            loader_version: None,
+            icon_path: None,
+            link: InstanceLink::Unmanaged,
+        })
+    }
+
+    #[test]
+    fn download_summary_uses_content_events_and_live_progress() {
+        let mut job = job_state();
+        job.record_event(InstallJobEventKind::ContentDownloadStarted {
+            files: 3,
+            bytes: Some(300),
+        });
+        job.record_event(InstallJobEventKind::ContentFileCompleted {
+            path: "mods/a.jar".to_string(),
+            bytes: 100,
+        });
+        job.set_progress(
+            InstallPhaseId::DownloadingContent,
+            Some(InstallProgress {
+                current: 2,
+                total: 3,
+                secondary: Some(InstallProgressSecondary {
+                    current: 220,
+                    total: 300,
+                }),
+            }),
+            InstallPhaseDetails::Empty,
+        );
+
+        let summary = job.download_summary();
+        assert_eq!(summary.files_completed, 2);
+        assert_eq!(summary.files_total, Some(3));
+        assert_eq!(summary.bytes_downloaded, 220);
+        assert_eq!(summary.bytes_total, Some(300));
+        assert_eq!(job.download_items().len(), 1);
+    }
+
+    #[test]
+    fn minecraft_download_progress_includes_byte_details() {
+        let mut job = job_state();
+        job.set_progress(
+            InstallPhaseId::DownloadingMinecraft,
+            Some(InstallProgress {
+                current: 125,
+                total: 500,
+                secondary: None,
+            }),
+            InstallPhaseDetails::Empty,
+        );
+
+        let summary = job.download_summary();
+        assert_eq!(summary.bytes_downloaded, 125);
+        assert_eq!(summary.bytes_total, Some(500));
+    }
+
+    #[test]
+    fn curseforge_instance_jobs_use_the_curseforge_provider() {
+        let job = InstallJobState::new(InstallRequest::CreateInstance {
+            name: "CurseForge pack".to_string(),
+            game_version: "1.20.1".to_string(),
+            loader: ModLoader::Forge,
+            loader_version: Some("latest".to_string()),
+            icon_path: None,
+            link: InstanceLink::CurseForgeModpack {
+                project_id: "123".to_string(),
+                version_id: "456".to_string(),
+            },
+        });
+
+        assert_eq!(job.provider(), InstallJobProvider::CurseForge);
+    }
+
+    #[test]
+    fn deleted_instance_is_exposed_by_download_snapshot_state() {
+        let mut job = job_state();
+        assert!(!job.instance_deleted());
+        job.record_event(InstallJobEventKind::TargetInstanceDeleted {
+            instance_id: "deleted-instance".to_string(),
+        });
+        assert!(job.instance_deleted());
+    }
+
+    #[test]
+    fn canceling_and_waiting_statuses_round_trip() {
+        for status in [
+            InstallJobStatus::Canceling,
+            InstallJobStatus::WaitingForUser,
+        ] {
+            assert_eq!(
+                InstallJobStatus::from_stored_str(status.as_str()),
+                status
+            );
+            assert!(!status.is_finished());
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstallJobEvent {
     pub at: DateTime<Utc>,
@@ -134,6 +241,9 @@ pub enum InstallJobEventKind {
     ContentFileCompleted {
         path: String,
         bytes: u64,
+    },
+    TargetInstanceDeleted {
+        instance_id: String,
     },
     Interrupted {
         reason: InstallInterruptReason,
@@ -255,6 +365,63 @@ pub enum InstallJobKind {
     InstallPackToExistingInstance,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallJobProvider {
+    Modrinth,
+    CurseForge,
+    Minecraft,
+    Java,
+    Application,
+    Local,
+}
+
+impl InstallJobProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Modrinth => "modrinth",
+            Self::CurseForge => "curse_forge",
+            Self::Minecraft => "minecraft",
+            Self::Java => "java",
+            Self::Application => "application",
+            Self::Local => "local",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadItemStatus {
+    Queued,
+    Downloading,
+    Verifying,
+    Writing,
+    WaitingForUser,
+    Completed,
+    Skipped,
+    Failed,
+    Canceled,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DownloadItemSnapshot {
+    pub id: String,
+    pub name: String,
+    pub status: DownloadItemStatus,
+    pub bytes_downloaded: u64,
+    pub bytes_total: Option<u64>,
+    pub error: Option<String>,
+    pub manual_url: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DownloadJobSummary {
+    pub files_completed: u64,
+    pub files_total: Option<u64>,
+    pub bytes_downloaded: u64,
+    pub bytes_total: Option<u64>,
+}
+
 impl InstallJobKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -288,6 +455,8 @@ impl InstallJobKind {
 pub enum InstallJobStatus {
     Queued,
     Running,
+    Canceling,
+    WaitingForUser,
     Succeeded,
     Failed,
     Interrupted,
@@ -299,6 +468,8 @@ impl InstallJobStatus {
         match self {
             Self::Queued => "queued",
             Self::Running => "running",
+            Self::Canceling => "canceling",
+            Self::WaitingForUser => "waiting_for_user",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Interrupted => "interrupted",
@@ -309,6 +480,8 @@ impl InstallJobStatus {
     pub fn from_stored_str(value: &str) -> Self {
         match value {
             "running" => Self::Running,
+            "canceling" => Self::Canceling,
+            "waiting_for_user" => Self::WaitingForUser,
             "succeeded" => Self::Succeeded,
             "failed" => Self::Failed,
             "interrupted" => Self::Interrupted,
@@ -548,8 +721,10 @@ impl InstallErrorView {
 pub struct InstallJobSnapshot {
     pub job_id: Uuid,
     pub instance_id: Option<String>,
+    pub instance_deleted: bool,
     pub kind: InstallJobKind,
     pub status: InstallJobStatus,
+    pub provider: InstallJobProvider,
     pub target: InstallTarget,
     pub phase: InstallPhaseId,
     pub progress: Option<InstallProgress>,
@@ -560,4 +735,117 @@ pub struct InstallJobSnapshot {
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
     pub finished: Option<DateTime<Utc>>,
+    pub summary: DownloadJobSummary,
+    pub items: Vec<DownloadItemSnapshot>,
+}
+
+impl InstallJobState {
+    pub fn instance_deleted(&self) -> bool {
+        self.events.iter().any(|event| {
+            matches!(
+                event.kind,
+                InstallJobEventKind::TargetInstanceDeleted { .. }
+            )
+        })
+    }
+
+    pub fn provider(&self) -> InstallJobProvider {
+        match &self.request {
+            InstallRequest::CreateModpackInstance { location, .. }
+            | InstallRequest::InstallPackToExistingInstance {
+                location, ..
+            } => match location {
+                CreatePackLocation::FromVersionId { .. } => {
+                    InstallJobProvider::Modrinth
+                }
+                CreatePackLocation::FromFile { .. } => {
+                    InstallJobProvider::Local
+                }
+            },
+            InstallRequest::CreateInstance { link, .. } => match link {
+                InstanceLink::CurseForgeModpack { .. } => {
+                    InstallJobProvider::CurseForge
+                }
+                _ => InstallJobProvider::Minecraft,
+            },
+            InstallRequest::InstallExistingInstance { .. } => {
+                InstallJobProvider::Minecraft
+            }
+            InstallRequest::ImportInstance { .. }
+            | InstallRequest::DuplicateInstance { .. } => {
+                InstallJobProvider::Local
+            }
+        }
+    }
+
+    pub fn download_items(&self) -> Vec<DownloadItemSnapshot> {
+        self.events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                InstallJobEventKind::ContentFileCompleted { path, bytes } => {
+                    Some(DownloadItemSnapshot {
+                        id: path.clone(),
+                        name: path.clone(),
+                        status: DownloadItemStatus::Completed,
+                        bytes_downloaded: *bytes,
+                        bytes_total: Some(*bytes),
+                        error: None,
+                        manual_url: None,
+                    })
+                }
+                InstallJobEventKind::ContentFileSkipped { path, reason } => {
+                    Some(DownloadItemSnapshot {
+                        id: path.clone(),
+                        name: path.clone(),
+                        status: DownloadItemStatus::Skipped,
+                        bytes_downloaded: 0,
+                        bytes_total: None,
+                        error: Some(reason.clone()),
+                        manual_url: None,
+                    })
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn download_summary(&self) -> DownloadJobSummary {
+        let mut summary = DownloadJobSummary::default();
+        for event in &self.events {
+            match &event.kind {
+                InstallJobEventKind::ContentDownloadStarted {
+                    files,
+                    bytes,
+                } => {
+                    summary.files_total = Some(*files);
+                    summary.bytes_total = *bytes;
+                }
+                InstallJobEventKind::ContentFileCompleted { bytes, .. } => {
+                    summary.files_completed += 1;
+                    summary.bytes_downloaded =
+                        summary.bytes_downloaded.saturating_add(*bytes);
+                }
+                InstallJobEventKind::ContentFileSkipped { .. } => {
+                    summary.files_completed += 1;
+                }
+                _ => {}
+            }
+        }
+        if let Some(progress) = &self.progress.progress {
+            if self.progress.phase == InstallPhaseId::DownloadingContent {
+                summary.files_completed = progress.current;
+                summary.files_total = Some(progress.total);
+                if let Some(bytes) = &progress.secondary {
+                    summary.bytes_downloaded = bytes.current;
+                    summary.bytes_total = Some(bytes.total);
+                }
+            } else if self.progress.phase
+                == InstallPhaseId::DownloadingMinecraft
+            {
+                summary.bytes_downloaded = progress.current;
+                summary.bytes_total = Some(progress.total);
+            }
+        }
+        summary
+    }
 }

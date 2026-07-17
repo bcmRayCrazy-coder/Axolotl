@@ -28,6 +28,14 @@ export default new createRouter({
 			},
 		},
 		{
+			path: '/downloads',
+			name: 'Downloads',
+			component: Pages.Downloads,
+			meta: {
+				breadcrumb: [{ name: 'Downloads' }],
+			},
+		},
+		{
 			path: '/browse/:projectType',
 			name: 'Discover content',
 			component: Pages.Browse,
