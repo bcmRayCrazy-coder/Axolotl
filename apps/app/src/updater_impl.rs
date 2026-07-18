@@ -1,19 +1,96 @@
 use crate::api::Result;
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tauri::http::HeaderValue;
 use tauri::http::header::ACCEPT;
 use tauri::{Manager, ResourceId, Runtime, Webview};
 use tauri_plugin_http::reqwest;
 use tauri_plugin_http::reqwest::ClientBuilder;
-use tauri_plugin_updater::Error;
-use tauri_plugin_updater::Update;
+use tauri_plugin_updater::{Error, Update, UpdaterExt};
 use theseus::{
     LoadingBarType, emit_loading, init_loading, launcher_user_agent,
 };
 use tokio::time::Instant;
+use url::Url;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateMetadata {
+    rid: ResourceId,
+    current_version: String,
+    version: String,
+    date: Option<String>,
+    body: Option<String>,
+    raw_json: serde_json::Value,
+}
 
 #[derive(Default)]
 pub struct PendingUpdateData(pub Mutex<Option<(Arc<Update>, Vec<u8>)>>);
+
+fn update_endpoints(source: &str) -> Result<Vec<Url>> {
+    let endpoints = match source {
+        "official" => vec![
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
+        "cnb" => vec![
+            "https://cnb.cool/axlmc/Axolotl/-/raw/main/latest.json",
+            "https://gitee.com/mystic-stars/axolotl/raw/main/latest.json",
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
+        "gitee" => vec![
+            "https://gitee.com/mystic-stars/axolotl/raw/main/latest.json",
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
+        "auto" | "" => vec![
+            "https://cnb.cool/axlmc/Axolotl/-/raw/main/latest.json",
+            "https://gitee.com/mystic-stars/axolotl/raw/main/latest.json",
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
+        _ => {
+            return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
+                format!("Unknown update source: {source}"),
+            ))
+            .into());
+        }
+    };
+
+    endpoints
+        .into_iter()
+        .map(|endpoint| {
+            Url::parse(endpoint).map_err(|error| {
+                theseus::Error::from(theseus::ErrorKind::OtherError(
+                    error.to_string(),
+                ))
+                .into()
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn check_app_update<R: Runtime>(
+    webview: Webview<R>,
+    source: String,
+) -> Result<Option<UpdateMetadata>> {
+    let updater = webview
+        .updater_builder()
+        .endpoints(update_endpoints(&source)?)?
+        .build()?;
+    let Some(update) = updater.check().await? else {
+        return Ok(None);
+    };
+
+    let metadata = UpdateMetadata {
+        rid: webview.resources_table().add(update.clone()),
+        current_version: update.current_version.clone(),
+        version: update.version.clone(),
+        date: None,
+        body: update.body.clone(),
+        raw_json: update.raw_json.clone(),
+    };
+
+    Ok(Some(metadata))
+}
 
 // Reimplementation of Update::download mostly, minus the actual download part
 #[tauri::command]

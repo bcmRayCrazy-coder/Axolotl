@@ -80,10 +80,11 @@ import { install_create_modpack_instance, install_get_modpack_preview } from '@/
 import { run } from '@/helpers/instance'
 import { cancelLogin, get as getCreds, login, logout } from '@/helpers/mr_auth.ts'
 import { mergeUrlQuery, parseModrinthLink } from '@/helpers/project-links.ts'
-import { get as getSettings, set as setSettings } from '@/helpers/settings.ts'
+import { get as getSettings, getUpdateSource, set as setSettings } from '@/helpers/settings.ts'
 import { get_opening_command, initialize_state } from '@/helpers/state'
 import {
 	areUpdatesEnabled,
+	checkAppUpdate,
 	enqueueUpdateForInstallation,
 	getOS,
 	getUpdateSize,
@@ -888,6 +889,8 @@ function showDelayedUpdatePopup() {
 	markAppUpdatePopupShown(update.version, stage)
 }
 
+let lastUpdateSource = 'auto'
+
 async function checkUpdates() {
 	if (!(await areUpdatesEnabled())) {
 		console.log('Skipping update check as updates are disabled in this build or environment')
@@ -897,7 +900,17 @@ async function checkUpdates() {
 	}
 
 	async function performCheck() {
-		const update = await invoke('plugin:updater|check')
+		const source = getUpdateSource()
+		if (source !== lastUpdateSource) {
+			availableUpdate.value = null
+			updateSize.value = null
+			appUpdateDownload.progress.value = 0
+			finishedDownloading.value = false
+			downloading.value = false
+			lastUpdateSource = source
+		}
+
+		const update = await checkAppUpdate(source)
 		if (!update) {
 			console.log('No update available')
 			return

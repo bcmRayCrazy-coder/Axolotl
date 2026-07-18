@@ -7,6 +7,7 @@ import {
 	InfoIcon,
 	LanguagesIcon,
 	PaintbrushIcon,
+	RefreshCwIcon,
 	SettingsIcon,
 	ToggleRightIcon,
 } from '@modrinth/assets'
@@ -31,6 +32,7 @@ import JavaSettings from '@/components/ui/settings/JavaSettings.vue'
 import LanguageSettings from '@/components/ui/settings/LanguageSettings.vue'
 import ResourceManagementSettings from '@/components/ui/settings/ResourceManagementSettings.vue'
 import TranslationSettings from '@/components/ui/settings/TranslationSettings.vue'
+import UpdateSettings from '@/components/ui/settings/UpdateSettings.vue'
 import { AxolotlBrandConfig } from '@/config'
 import { get, set } from '@/helpers/settings.ts'
 import { injectAppUpdateDownloadProgress } from '@/providers/download-progress.ts'
@@ -105,6 +107,14 @@ const tabs = [
 		}),
 		icon: InfoIcon,
 		content: AboutSettings,
+	},
+	{
+		name: defineMessage({
+			id: 'app.settings.tabs.updates',
+			defaultMessage: 'Updates',
+		}),
+		icon: RefreshCwIcon,
+		content: UpdateSettings,
 	},
 	{
 		name: commonSettingsMessages.featureFlags,

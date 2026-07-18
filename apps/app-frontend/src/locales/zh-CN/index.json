@@ -1445,9 +1445,43 @@
   "app.settings.resources.select-directory": {
     "message": "选择新的应用目录"
   },
-  "app.settings.tabs.about": {
-    "message": "关于"
+  "app.settings.tabs.updates": {
+    "message": "更新"
   },
+  "app.settings.updates.auto": {
+    "message": "自动选择（推荐）"
+  },
+  "app.settings.updates.auto-description": {
+    "message": "依次尝试 CNB 镜像、Gitee 镜像和官方 GitHub 源。"
+  },
+  "app.settings.updates.cnb": {
+    "message": "CNB 镜像"
+  },
+  "app.settings.updates.cnb-description": {
+    "message": "使用由 CNB 提供的中国大陆镜像，失败时回退到 GitHub。"
+  },
+  "app.settings.updates.description": {
+    "message": "选择 Axolotl 检查启动器更新的位置。自动选择会尝试可用源，并在失败时自动回退。"
+  },
+  "app.settings.updates.gitee": {
+    "message": "Gitee 镜像"
+  },
+  "app.settings.updates.gitee-description": {
+    "message": "使用 Gitee 镜像，失败时回退到官方源。"
+  },
+  "app.settings.updates.official": {
+    "message": "官方 GitHub 源"
+  },
+  "app.settings.updates.official-description": {
+    "message": "直接从 Axolotl GitHub Releases 下载。"
+  },
+  "app.settings.updates.security": {
+    "message": "所有源都使用相同的签名更新清单。镜像只有在签名有效时才能安装更新。"
+  },
+  "app.settings.updates.title": {
+    "message": "更新源"
+  },
+
   "app.settings.tabs.appearance": {
     "message": "外观"
   },

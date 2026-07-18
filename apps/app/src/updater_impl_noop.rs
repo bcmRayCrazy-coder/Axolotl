@@ -5,6 +5,11 @@ use theseus::ErrorKind;
 pub struct PendingUpdateData(());
 
 #[tauri::command]
+pub fn check_app_update() -> Result<()> {
+    updates_are_disabled()
+}
+
+#[tauri::command]
 pub fn get_update_size() -> Result<()> {
     updates_are_disabled()
 }

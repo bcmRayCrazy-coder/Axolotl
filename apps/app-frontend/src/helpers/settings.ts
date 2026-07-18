@@ -31,6 +31,19 @@ Memorysettings {
 
 */
 
+export type UpdateSource = 'auto' | 'official' | 'cnb' | 'gitee'
+
+const UPDATE_SOURCE_STORAGE_KEY = 'axolotl-update-source'
+
+export function getUpdateSource(): UpdateSource {
+	const value = localStorage.getItem(UPDATE_SOURCE_STORAGE_KEY)
+	return value === 'official' || value === 'cnb' || value === 'gitee' ? value : 'auto'
+}
+
+export function setUpdateSource(source: UpdateSource) {
+	localStorage.setItem(UPDATE_SOURCE_STORAGE_KEY, source)
+}
+
 export type AppSettings = {
 	max_concurrent_downloads: number
 	max_concurrent_writes: number

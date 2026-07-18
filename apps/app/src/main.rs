@@ -258,6 +258,7 @@ fn main() {
             is_dev,
             are_updates_enabled,
             get_update_size,
+            check_app_update,
             enqueue_update_for_installation,
             remove_enqueued_update,
             set_restart_after_pending_update,
