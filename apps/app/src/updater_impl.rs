@@ -32,7 +32,7 @@ fn update_endpoints(source: &str) -> Result<Vec<Url>> {
         "github" | "official" => {
             "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json"
         }
-        "cnb" => "https://cnb.cool/axlmc/Axolotl/-/raw/update/latest.json",
+        "cnb" => "https://cnb.cool/axlmc/Axolotl/-/git/raw/update/latest.json",
         _ => {
             return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
                 format!("Unknown update source: {source}"),
