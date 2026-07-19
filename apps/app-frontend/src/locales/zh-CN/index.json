@@ -2533,6 +2533,6 @@
 		"message": "未知文件警告"
 	},
 	"omorphia.component.loading-indicator.label": {
-		"defaultMessage": "加载中"
+		"message": "加载中"
 	}
 }
