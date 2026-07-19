@@ -28,11 +28,14 @@ pub struct UpdateMetadata {
 pub struct PendingUpdateData(pub Mutex<Option<(Arc<Update>, Vec<u8>)>>);
 
 fn update_endpoints(source: &str) -> Result<Vec<Url>> {
-    let endpoint = match source {
-        "github" | "official" => {
-            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json"
-        }
-        "cnb" => "https://cnb.cool/axlmc/Axolotl/-/git/raw/update/latest.json",
+    let endpoints = match source {
+        "github" | "official" => vec![
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
+        "cnb" => vec![
+            "https://cnb.cool/axlmc/Axolotl/-/git/raw/update/latest.json",
+            "https://github.com/Mystic-Stars/Axolotl/releases/latest/download/latest.json",
+        ],
         _ => {
             return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
                 format!("Unknown update source: {source}"),
@@ -41,9 +44,17 @@ fn update_endpoints(source: &str) -> Result<Vec<Url>> {
         }
     };
 
-    Ok(vec![Url::parse(endpoint).map_err(|error| {
-        theseus::Error::from(theseus::ErrorKind::OtherError(error.to_string()))
-    })?])
+    endpoints
+        .into_iter()
+        .map(|endpoint| {
+            Url::parse(endpoint).map_err(|error| {
+                theseus::Error::from(theseus::ErrorKind::OtherError(
+                    error.to_string(),
+                ))
+                .into()
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
