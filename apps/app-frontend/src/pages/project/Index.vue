@@ -380,6 +380,7 @@ import { get_loader_versions as getLoaderManifest } from '@/helpers/metadata'
 import { get_by_instance_id } from '@/helpers/process'
 import { get_categories, get_game_versions, get_loaders } from '@/helpers/tags'
 import {
+	getTranslationErrorKind,
 	getTranslationSettings,
 	prepareDescription,
 	translate as translateContent,
@@ -440,6 +441,22 @@ const messages = defineMessages({
 	translationFailedTitle: {
 		id: 'app.project.translation.failed-title',
 		defaultMessage: 'Translation failed',
+	},
+	translationRateLimited: {
+		id: 'app.translation.error.rate-limited',
+		defaultMessage: 'The translation service is temporarily rate limited. Please try again later.',
+	},
+	translationAuthenticationFailed: {
+		id: 'app.translation.error.authentication',
+		defaultMessage: 'The translation service could not authenticate. Please try again later.',
+	},
+	translationContentTooLong: {
+		id: 'app.translation.error.content-too-long',
+		defaultMessage: 'This content is too long for the selected translation service.',
+	},
+	translationNetworkFailed: {
+		id: 'app.translation.error.network',
+		defaultMessage: 'The translation service could not be reached. Check your network or proxy.',
 	},
 })
 
@@ -719,6 +736,18 @@ async function fetchProjectData() {
 	void maybeAutoTranslate()
 }
 
+function translationFailureMessage(error) {
+	return formatMessage(
+		{
+			'rate-limited': messages.translationRateLimited,
+			authentication: messages.translationAuthenticationFailed,
+			'content-too-long': messages.translationContentTooLong,
+			network: messages.translationNetworkFailed,
+			provider: messages.translationFailed,
+		}[getTranslationErrorKind(error)],
+	)
+}
+
 async function translateProject() {
 	if (!data.value || translationLoading.value) return
 	const requestVersion = ++translationRequestVersion
@@ -751,11 +780,11 @@ async function translateProject() {
 		validateTranslatedDescription(prepared, translatedSegments)
 		translations.value = translatedSegments
 		translationActive.value = true
-	} catch {
+	} catch (error) {
 		if (requestVersion === translationRequestVersion) {
 			addNotification({
 				title: formatMessage(messages.translationFailedTitle),
-				text: formatMessage(messages.translationFailed),
+				text: translationFailureMessage(error),
 				type: 'error',
 			})
 		}

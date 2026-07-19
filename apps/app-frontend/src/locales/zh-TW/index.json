@@ -320,6 +320,78 @@
   "app.instance.confirm-delete.header": {
     "message": "刪除實例"
   },
+  "app.instance.icon-picker.description": {
+    "message": "選擇內建的 Minecraft 圖示，或上傳自己的圖片。"
+  },
+  "app.instance.icon-picker.icon.bread": {
+    "message": "麵包"
+  },
+  "app.instance.icon-picker.icon.carrot": {
+    "message": "胡蘿蔔"
+  },
+  "app.instance.icon-picker.icon.cooked-chicken": {
+    "message": "烤雞"
+  },
+  "app.instance.icon-picker.icon.crafting-table": {
+    "message": "工作台"
+  },
+  "app.instance.icon-picker.icon.diamond-axe": {
+    "message": "鑽石斧"
+  },
+  "app.instance.icon-picker.icon.diamond-block": {
+    "message": "鑽石方塊"
+  },
+  "app.instance.icon-picker.icon.diamond-sword": {
+    "message": "鑽石劍"
+  },
+  "app.instance.icon-picker.icon.end-stone": {
+    "message": "終界石"
+  },
+  "app.instance.icon-picker.icon.furnace": {
+    "message": "熔爐"
+  },
+  "app.instance.icon-picker.icon.glass-bottle": {
+    "message": "玻璃瓶"
+  },
+  "app.instance.icon-picker.icon.gold-block": {
+    "message": "黃金方塊"
+  },
+  "app.instance.icon-picker.icon.golden-apple": {
+    "message": "金蘋果"
+  },
+  "app.instance.icon-picker.icon.grass-block": {
+    "message": "草地"
+  },
+  "app.instance.icon-picker.icon.iron-block": {
+    "message": "鐵方塊"
+  },
+  "app.instance.icon-picker.icon.item-frame": {
+    "message": "物品展示框"
+  },
+  "app.instance.icon-picker.icon.netherrack": {
+    "message": "地獄石"
+  },
+  "app.instance.icon-picker.icon.oak-sapling": {
+    "message": "橡木樹苗"
+  },
+  "app.instance.icon-picker.icon.stone": {
+    "message": "石頭"
+  },
+  "app.instance.icon-picker.icon.totem-of-undying": {
+    "message": "不死圖騰"
+  },
+  "app.instance.icon-picker.icon.water-bucket": {
+    "message": "水桶"
+  },
+  "app.instance.icon-picker.load-error": {
+    "message": "無法載入內建圖示。"
+  },
+  "app.instance.icon-picker.title": {
+    "message": "選擇實例圖示"
+  },
+  "app.instance.icon-picker.upload": {
+    "message": "上傳圖片"
+  },
   "app.instance.modpack-already-installed.body": {
     "message": "這個模組包已經安裝在實例「<bold>{instanceName}</bold>」中了，確定要再次安裝嗎？"
   },
@@ -1102,6 +1174,18 @@
   },
   "app.settings.tabs.translation": {
     "message": "翻譯"
+  },
+  "app.translation.error.authentication": {
+    "message": "翻譯服務驗證失敗，請稍後再試。"
+  },
+  "app.translation.error.content-too-long": {
+    "message": "此內容超過所選翻譯服務的長度限制。"
+  },
+  "app.translation.error.network": {
+    "message": "無法連線至翻譯服務，請檢查網路或代理設定。"
+  },
+  "app.translation.error.rate-limited": {
+    "message": "翻譯服務暫時受到速率限制，請稍後再試。"
   },
   "app.translation-settings.api-key": {
     "message": "API 金鑰"

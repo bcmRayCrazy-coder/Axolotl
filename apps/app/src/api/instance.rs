@@ -48,6 +48,7 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             instance_run,
             instance_kill,
             instance_edit,
+            instance_cache_icon,
             instance_edit_icon,
             instance_export_mrpack,
             instance_get_pack_export_candidates,
@@ -750,6 +751,14 @@ pub async fn instance_edit(
 ) -> Result<()> {
     theseus::instance::edit(instance_id, edit_to_core(edit_instance)?).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn instance_cache_icon(
+    icon_name: &str,
+    bytes: Vec<u8>,
+) -> Result<String> {
+    Ok(theseus::instance::cache_icon(icon_name, bytes).await?)
 }
 
 #[tauri::command]

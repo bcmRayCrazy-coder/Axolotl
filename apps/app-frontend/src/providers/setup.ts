@@ -12,10 +12,11 @@ export function setupProviders(
 ) {
 	setupTagsProvider(notificationManager)
 	setupFileDropProvider()
-	setupFilePickerProvider()
+	const filePicker = setupFilePickerProvider()
 	setupInstanceImportProvider(notificationManager)
 
 	return {
+		...filePicker,
 		...setupCreationModal(notificationManager),
 	}
 }

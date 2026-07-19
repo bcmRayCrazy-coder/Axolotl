@@ -839,6 +839,78 @@
 	"app.instance.hide-show-unselected": {
 		"message": "Show/hide unselected"
 	},
+	"app.instance.icon-picker.description": {
+		"message": "Choose a built-in Minecraft icon or upload your own image."
+	},
+	"app.instance.icon-picker.icon.bread": {
+		"message": "Bread"
+	},
+	"app.instance.icon-picker.icon.carrot": {
+		"message": "Carrot"
+	},
+	"app.instance.icon-picker.icon.cooked-chicken": {
+		"message": "Cooked Chicken"
+	},
+	"app.instance.icon-picker.icon.crafting-table": {
+		"message": "Crafting Table"
+	},
+	"app.instance.icon-picker.icon.diamond-axe": {
+		"message": "Diamond Axe"
+	},
+	"app.instance.icon-picker.icon.diamond-block": {
+		"message": "Diamond Block"
+	},
+	"app.instance.icon-picker.icon.diamond-sword": {
+		"message": "Diamond Sword"
+	},
+	"app.instance.icon-picker.icon.end-stone": {
+		"message": "End Stone"
+	},
+	"app.instance.icon-picker.icon.furnace": {
+		"message": "Furnace"
+	},
+	"app.instance.icon-picker.icon.glass-bottle": {
+		"message": "Glass Bottle"
+	},
+	"app.instance.icon-picker.icon.gold-block": {
+		"message": "Gold Block"
+	},
+	"app.instance.icon-picker.icon.golden-apple": {
+		"message": "Golden Apple"
+	},
+	"app.instance.icon-picker.icon.grass-block": {
+		"message": "Grass Block"
+	},
+	"app.instance.icon-picker.icon.iron-block": {
+		"message": "Iron Block"
+	},
+	"app.instance.icon-picker.icon.item-frame": {
+		"message": "Item Frame"
+	},
+	"app.instance.icon-picker.icon.netherrack": {
+		"message": "Netherrack"
+	},
+	"app.instance.icon-picker.icon.oak-sapling": {
+		"message": "Oak Sapling"
+	},
+	"app.instance.icon-picker.icon.stone": {
+		"message": "Stone"
+	},
+	"app.instance.icon-picker.icon.totem-of-undying": {
+		"message": "Totem of Undying"
+	},
+	"app.instance.icon-picker.icon.water-bucket": {
+		"message": "Water Bucket"
+	},
+	"app.instance.icon-picker.load-error": {
+		"message": "Failed to load the bundled icon."
+	},
+	"app.instance.icon-picker.title": {
+		"message": "Choose an instance icon"
+	},
+	"app.instance.icon-picker.upload": {
+		"message": "Upload image"
+	},
 	"app.instance.join-server": {
 		"message": "Join server"
 	},
@@ -1850,6 +1922,18 @@
 	"app.translation-settings.title": {
 		"message": "Translation"
 	},
+	"app.translation.error.authentication": {
+		"message": "The translation service could not authenticate. Please try again later."
+	},
+	"app.translation.error.content-too-long": {
+		"message": "This content is too long for the selected translation service."
+	},
+	"app.translation.error.network": {
+		"message": "The translation service could not be reached. Check your network or proxy."
+	},
+	"app.translation.error.rate-limited": {
+		"message": "The translation service is temporarily rate limited. Please try again later."
+	},
 	"app.update-popup.body.download-complete": {
 		"message": "Axolotl Launcher v{version} has finished downloading. Reload to update now, or automatically when you close Axolotl Launcher."
 	},
@@ -2445,6 +2529,6 @@
 		"message": "Unknown file warning"
 	},
 	"omorphia.component.loading-indicator.label": {
-		"message": "Loading"
+		"defaultMessage": "Loading"
 	}
 }

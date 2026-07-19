@@ -232,10 +232,7 @@
 					</button>
 				</ButtonStyled>
 				<ButtonStyled color="brand">
-					<button
-						:disabled="loginDisabled || !yggdrasilFormValid"
-						@click="addYggdrasilAccount()"
-					>
+					<button :disabled="loginDisabled || !yggdrasilFormValid" @click="addYggdrasilAccount()">
 						<SpinnerIcon v-if="loginDisabled" class="animate-spin" />
 						<LogInIcon v-else />
 						{{ formatMessage(messages.signInButton) }}
@@ -504,9 +501,7 @@ const avatarUrl = computed(() => {
 			return cachedUrl
 		}
 		if (selectedAccount.value?.account_type === 'yggdrasil') {
-			return (
-				accountHeadUrlCache.value.get(selectedAccount.value.profile.id) ?? defaultSteveHeadUrl
-			)
+			return accountHeadUrlCache.value.get(selectedAccount.value.profile.id) ?? defaultSteveHeadUrl
 		}
 		return `https://mc-heads.net/avatar/${equippedSkin.value.texture_key}/128`
 	}
@@ -577,9 +572,7 @@ async function showYggdrasilAccountModal() {
 
 async function loadSavedYggdrasilLogins() {
 	const storedLogins = await list_yggdrasil_saved_logins().catch(handleError)
-	const savedLogins: SavedYggdrasilLogin[] = Array.isArray(storedLogins)
-		? [...storedLogins]
-		: []
+	const savedLogins: SavedYggdrasilLogin[] = Array.isArray(storedLogins) ? [...storedLogins] : []
 	const savedLoginKeys = new Set(
 		savedLogins.map((savedLogin) => `${savedLogin.api_root}\n${savedLogin.login}`),
 	)
@@ -638,8 +631,7 @@ async function removeSavedYggdrasilLogin(savedLogin: SavedYggdrasilLogin) {
 	try {
 		await delete_yggdrasil_password(savedLogin.api_root, savedLogin.login)
 		savedYggdrasilLogins.value = savedYggdrasilLogins.value.filter(
-			(entry) =>
-				entry.api_root !== savedLogin.api_root || entry.login !== savedLogin.login,
+			(entry) => entry.api_root !== savedLogin.api_root || entry.login !== savedLogin.login,
 		)
 		if (
 			yggdrasilApiRoot.value === savedLogin.api_root &&
@@ -688,10 +680,7 @@ async function persistYggdrasilPasswordPreference() {
 				yggdrasilPassword.value,
 			)
 		} else {
-			await delete_yggdrasil_password(
-				yggdrasilApiRoot.value.trim(),
-				yggdrasilLogin.value.trim(),
-			)
+			await delete_yggdrasil_password(yggdrasilApiRoot.value.trim(), yggdrasilLogin.value.trim())
 		}
 	} catch (error) {
 		handleError(error as Error)
@@ -819,8 +808,7 @@ const messages = defineMessages({
 	},
 	thirdPartyModalDescription: {
 		id: 'minecraft-account.third-party-modal.description',
-		defaultMessage:
-			'Use LittleSkin or another compatible Yggdrasil authentication service.',
+		defaultMessage: 'Use LittleSkin or another compatible Yggdrasil authentication service.',
 	},
 	useLittleSkin: {
 		id: 'minecraft-account.third-party-modal.littleskin',

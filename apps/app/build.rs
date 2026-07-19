@@ -258,6 +258,7 @@ fn main() {
                         "instance_run",
                         "instance_kill",
                         "instance_edit",
+                        "instance_cache_icon",
                         "instance_edit_icon",
                         "instance_export_mrpack",
                         "instance_get_pack_export_candidates",

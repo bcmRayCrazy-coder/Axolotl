@@ -333,6 +333,10 @@ export async function edit(instanceId: string, editInstance: Partial<GameInstanc
 	return await invoke('plugin:instance|instance_edit', { instanceId, editInstance })
 }
 
+export async function cache_icon(iconName: string, bytes: number[]): Promise<string> {
+	return await invoke('plugin:instance|instance_cache_icon', { iconName, bytes })
+}
+
 // Edits an instance's icon
 export async function edit_icon(instanceId: string, iconPath: string | null): Promise<void> {
 	return await invoke('plugin:instance|instance_edit_icon', { instanceId, iconPath })

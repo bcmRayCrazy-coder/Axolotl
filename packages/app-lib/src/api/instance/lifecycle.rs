@@ -5,7 +5,7 @@ use crate::state::{
     CreateInstance, EditInstance, InstanceLink, InstanceMetadata, ModLoader,
     State,
 };
-use crate::util::io;
+use crate::util::{fetch::write_cached_icon, io};
 use std::path::Path;
 
 #[tracing::instrument]
@@ -71,6 +71,22 @@ pub async fn edit(
     emit_instance(&instance.instance.id, InstancePayloadType::Edited).await?;
 
     Ok(instance)
+}
+
+pub async fn cache_icon(
+    icon_name: &str,
+    bytes: Vec<u8>,
+) -> crate::Result<String> {
+    let state = State::get().await?;
+    let path = write_cached_icon(
+        icon_name,
+        &state.directories.caches_dir(),
+        bytes::Bytes::from(bytes),
+        &state.io_semaphore,
+    )
+    .await?;
+
+    Ok(path.to_string_lossy().to_string())
 }
 
 pub async fn edit_icon(

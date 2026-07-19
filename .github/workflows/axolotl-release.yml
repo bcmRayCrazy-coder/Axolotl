@@ -45,66 +45,40 @@ jobs:
           node scripts/axolotl/i18n-check.mjs
           cargo fmt --all --check
 
-  build-smoke:
-    name: Build smoke test (Linux x64)
-    needs: preflight
-    runs-on: ubuntu-24.04
-    env:
-      SQLX_OFFLINE: true
-    steps:
-      - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
-
-      - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-
-      - name: Install Linux dependencies
-        run: sudo apt-get -o Acquire::ForceIPv4=true update && sudo apt-get -o Acquire::ForceIPv4=true install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set release version
-        run: node scripts/axolotl/set-version.mjs "${{ github.ref_name }}"
-
-      - name: Build and upload Linux x64 smoke release
-        uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
+      - name: Prepare draft release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: apps/app
-          tauriScript: pnpm tauri
-          args: --config tauri-release.conf.json
-          tagName: ${{ github.ref_name }}
-          releaseName: Axolotl Launcher ${{ github.ref_name }}
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generateReleaseNotes: true
-          updaterJsonPreferNsis: true
-          retryAttempts: 2
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing_release="$(
+            gh release list --limit 100 --json tagName \
+              --jq ".[] | select(.tagName == \"${GITHUB_REF_NAME}\") | .tagName"
+          )"
+          if [[ -n "$existing_release" ]]; then
+            echo "Release ${GITHUB_REF_NAME} already exists"
+            exit 0
+          fi
+
+          release_args=(
+            --draft
+            --generate-notes
+            --title "Axolotl Launcher ${GITHUB_REF_NAME}"
+          )
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "${GITHUB_REF_NAME}" "${release_args[@]}"
 
   build:
     name: Build (${{ matrix.name }})
-    needs: build-smoke
+    needs: preflight
     strategy:
       fail-fast: true
-      max-parallel: 3
+      max-parallel: 4
       matrix:
         include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            args: --config tauri-release.conf.json
           - name: Linux arm64
             runner: ubuntu-24.04-arm
             args: --config tauri-release.conf.json
@@ -166,24 +140,47 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
+          includeUpdaterJson: false
           updaterJsonPreferNsis: true
           retryAttempts: 2
 
   verify-and-publish:
     name: Verify and publish
-    needs: [build-smoke, build]
+    needs: build
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Download update manifest
+      - name: Download updater signatures
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${GITHUB_REF_NAME}" --pattern latest.json --dir release-check
+        run: gh release download "${GITHUB_REF_NAME}" --pattern '*.sig' --dir release-check/signatures
+
+      - name: Download release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_id="$(
+            gh release list --limit 100 --json databaseId,tagName \
+              --jq ".[] | select(.tagName == \"${GITHUB_REF_NAME}\") | .databaseId"
+          )"
+          if [[ -z "$release_id" ]]; then
+            echo "Release ${GITHUB_REF_NAME} was not found"
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > release-check/release.json
+
+      - name: Generate update manifest
+        run: node scripts/axolotl/create-update-manifest.mjs release-check/release.json release-check/signatures "${GITHUB_REF_NAME}" release-check/latest.json
 
       - name: Verify update manifest
         run: node scripts/axolotl/verify-update-manifest.mjs release-check/latest.json "${GITHUB_REF_NAME}"
+
+      - name: Upload update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" release-check/latest.json --clobber
 
       - name: Publish release
         env:

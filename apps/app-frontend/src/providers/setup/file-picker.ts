@@ -1,7 +1,11 @@
-import { provideFilePicker } from '@modrinth/ui'
+import { type PickedFile, provideFilePicker } from '@modrinth/ui'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { readFile } from '@tauri-apps/plugin-fs'
+import { useTemplateRef } from 'vue'
+import type { ComponentExposed } from 'vue-component-type-helpers'
+
+import type InstanceIconPickerModal from '@/components/ui/modal/InstanceIconPickerModal.vue'
 
 function getFileName(path: string, fallback: string) {
 	return path.split(/[\\/]/).pop() || fallback
@@ -24,7 +28,22 @@ async function createNativeFileFromPath(path: string, fallbackName: string, type
 	return new File([new Uint8Array(bytes)], name, type ? { type } : undefined)
 }
 
+export async function pickImage(): Promise<PickedFile | null> {
+	const result = await open({
+		multiple: false,
+		filters: [{ name: 'Image', extensions: ['png', 'jpeg', 'jpg', 'svg', 'webp', 'gif'] }],
+	})
+	if (!result) return null
+	const path = getDialogPath(result)
+	if (!path) return null
+	const file = await createFileFromPath(path, 'icon')
+	return { file, path, previewUrl: convertFileSrc(path) }
+}
+
 export function setupFilePickerProvider() {
+	const instanceIconPickerModal =
+		useTemplateRef<ComponentExposed<typeof InstanceIconPickerModal>>('instanceIconPickerModal')
+
 	provideFilePicker({
 		async pickFiles(options) {
 			const result = await open({
@@ -44,17 +63,8 @@ export function setupFilePickerProvider() {
 					})),
 			)
 		},
-		async pickImage() {
-			const result = await open({
-				multiple: false,
-				filters: [{ name: 'Image', extensions: ['png', 'jpeg', 'jpg', 'svg', 'webp', 'gif'] }],
-			})
-			if (!result) return null
-			const path = getDialogPath(result)
-			if (!path) return null
-			const file = await createFileFromPath(path, 'icon')
-			return { file, path, previewUrl: convertFileSrc(path) }
-		},
+		pickImage,
+		pickInstanceIcon: () => instanceIconPickerModal.value?.show() ?? Promise.resolve(null),
 		async pickModpackFile(options) {
 			const result = await open({
 				multiple: false,
@@ -78,4 +88,6 @@ export function setupFilePickerProvider() {
 			}
 		},
 	})
+
+	return { instanceIconPickerModal }
 }

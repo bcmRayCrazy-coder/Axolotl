@@ -6,6 +6,7 @@ import {
 	Checkbox,
 	Chips,
 	defineMessages,
+	injectFilePicker,
 	injectNotificationManager,
 	OverflowMenu,
 	StyledInput,
@@ -13,7 +14,6 @@ import {
 } from '@modrinth/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
 import { computed, type Ref, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -26,6 +26,7 @@ import { injectInstanceSettings } from '@/providers/instance-settings'
 import type { GameInstance } from '../../../helpers/types'
 
 const { handleError } = injectNotificationManager()
+const filePicker = injectFilePicker()
 const { formatMessage } = useVIntl()
 const router = useRouter()
 const queryClient = useQueryClient()
@@ -115,22 +116,22 @@ async function resetIcon() {
 }
 
 async function setIcon() {
-	const value = await open({
-		multiple: false,
-		filters: [
-			{
-				name: 'Image',
-				extensions: ['png', 'jpeg', 'svg', 'webp', 'gif', 'jpg'],
-			},
-		],
-	})
+	try {
+		const picked = await (filePicker.pickInstanceIcon?.() ?? filePicker.pickImage())
+		if (!picked?.path) return
 
-	if (!value) return
-
-	icon.value = value
-	await edit_icon(instance.value.id, icon.value).catch(handleError)
-
-	trackEvent('InstanceSetIcon')
+		const previousIcon = icon.value
+		icon.value = picked.path
+		try {
+			await edit_icon(instance.value.id, picked.path)
+			trackEvent('InstanceSetIcon')
+		} catch (error) {
+			icon.value = previousIcon
+			handleError(error)
+		}
+	} catch (error) {
+		handleError(error)
+	}
 }
 
 const editInstanceObject = computed(() => ({

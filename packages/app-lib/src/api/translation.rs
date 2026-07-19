@@ -1,14 +1,20 @@
 //! Translation settings and provider adapters.
 
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures::{StreamExt, stream};
+use rand::Rng;
 use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 use url::Url;
 
@@ -22,7 +28,29 @@ const GOOGLE_TRANSLATE_API_KEY: &str =
 const MICROSOFT_AUTH_URL: &str = "https://edge.microsoft.com/translate/auth";
 const MICROSOFT_TRANSLATE_URL: &str =
     "https://api-edge.cognitive.microsofttranslator.com/translate";
-const MAX_RETRY_AFTER_SECONDS: u64 = 20;
+const MICROSOFT_MAX_BATCH_CHARACTERS: usize = 50_000;
+const MICROSOFT_MAX_BATCH_SEGMENTS: usize = 100;
+const MICROSOFT_TOKEN_FALLBACK_LIFETIME: Duration = Duration::from_secs(5 * 60);
+const MICROSOFT_TOKEN_EXPIRY_MARGIN: Duration = Duration::from_secs(30);
+const MAX_RETRY_DELAY_SECONDS: u64 = 120;
+
+#[derive(Debug, Clone)]
+struct CachedMicrosoftToken {
+    value: String,
+    expires_at: Instant,
+}
+
+static TRANSLATION_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent(crate::launcher_user_agent())
+        .build()
+        .expect("translation client configuration should be valid")
+});
+static MICROSOFT_TOKEN: LazyLock<Mutex<Option<CachedMicrosoftToken>>> =
+    LazyLock::new(|| Mutex::new(None));
+static MICROSOFT_COOLDOWN: LazyLock<Mutex<Option<Instant>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -308,60 +336,106 @@ pub async fn set_secret(
     Ok(())
 }
 
-fn client() -> crate::Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .user_agent(crate::launcher_user_agent())
-        .build()
-        .map_err(Into::into)
-}
-
 fn should_retry_status(status: StatusCode) -> bool {
     status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
 }
 
 fn retry_after_delay(headers: &HeaderMap) -> Option<Duration> {
-    headers
-        .get(RETRY_AFTER)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse::<u64>()
-        .ok()
-        .map(|seconds| {
-            Duration::from_secs(seconds.min(MAX_RETRY_AFTER_SECONDS))
-        })
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds.min(MAX_RETRY_DELAY_SECONDS)));
+    }
+
+    let retry_at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    let seconds = (retry_at.with_timezone(&chrono::Utc) - chrono::Utc::now())
+        .num_seconds()
+        .max(0) as u64;
+    Some(Duration::from_secs(seconds.min(MAX_RETRY_DELAY_SECONDS)))
 }
 
 fn response_retry_delay(response: &Response, attempt: u32) -> Duration {
     if response.status() == StatusCode::TOO_MANY_REQUESTS {
         retry_after_delay(response.headers()).unwrap_or_else(|| {
-            Duration::from_millis(1_500 * (1_u64 << attempt))
+            let jitter = rand::thread_rng().gen_range(0..=250);
+            Duration::from_millis(1_500 * (1_u64 << attempt) + jitter)
         })
     } else {
-        Duration::from_millis(500 * (1_u64 << attempt))
+        let jitter = rand::thread_rng().gen_range(0..=250);
+        Duration::from_millis(500 * (1_u64 << attempt) + jitter)
     }
 }
 
-async fn send_with_retry<F>(mut request: F) -> crate::Result<Response>
+async fn wait_for_microsoft_cooldown() {
+    let delay = {
+        let mut cooldown = MICROSOFT_COOLDOWN.lock().await;
+        match *cooldown {
+            Some(until) if until > Instant::now() => {
+                Some(until.saturating_duration_since(Instant::now()))
+            }
+            Some(_) => {
+                *cooldown = None;
+                None
+            }
+            None => None,
+        }
+    };
+    if let Some(delay) = delay {
+        sleep(delay).await;
+    }
+}
+
+async fn set_microsoft_cooldown(delay: Duration) {
+    let until = Instant::now() + delay;
+    let mut cooldown = MICROSOFT_COOLDOWN.lock().await;
+    if cooldown.is_none_or(|current| current < until) {
+        *cooldown = Some(until);
+    }
+}
+
+async fn send_with_retry<F>(
+    mut request: F,
+    microsoft: bool,
+) -> crate::Result<Response>
 where
     F: FnMut() -> RequestBuilder,
 {
     for attempt in 0..=2 {
+        if microsoft {
+            wait_for_microsoft_cooldown().await;
+        }
         match request().send().await {
             Ok(response)
                 if should_retry_status(response.status()) && attempt < 2 =>
             {
                 let delay = response_retry_delay(&response, attempt);
-                sleep(delay).await;
+                if microsoft
+                    && response.status() == StatusCode::TOO_MANY_REQUESTS
+                {
+                    set_microsoft_cooldown(delay).await;
+                } else {
+                    sleep(delay).await;
+                }
             }
-            Ok(response) => return Ok(response),
+            Ok(response) => {
+                if microsoft
+                    && response.status() == StatusCode::TOO_MANY_REQUESTS
+                {
+                    set_microsoft_cooldown(response_retry_delay(
+                        &response, attempt,
+                    ))
+                    .await;
+                }
+                return Ok(response);
+            }
             Err(_) if attempt < 2 => {
-                sleep(Duration::from_millis(500 * (1 << attempt))).await;
+                let jitter = rand::thread_rng().gen_range(0..=250);
+                sleep(Duration::from_millis(500 * (1_u64 << attempt) + jitter))
+                    .await;
             }
             Err(_) => {
                 return Err(ErrorKind::OtherError(
-                    "Translation network request failed".to_string(),
+                    "TRANSLATION_NETWORK_FAILED: Translation network request failed"
+                        .to_string(),
                 )
                 .into());
             }
@@ -379,14 +453,24 @@ async fn checked_json(
 ) -> crate::Result<Value> {
     let status = response.status();
     if !status.is_success() {
+        let category = if status == StatusCode::TOO_MANY_REQUESTS {
+            "TRANSLATION_RATE_LIMITED"
+        } else if matches!(
+            status,
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            "TRANSLATION_AUTHENTICATION_FAILED"
+        } else {
+            "TRANSLATION_PROVIDER_FAILED"
+        };
         return Err(ErrorKind::OtherError(format!(
-            "{provider} translation failed with HTTP {status}"
+            "{category}: {provider} translation failed with HTTP {status}"
         ))
         .into());
     }
     response.json().await.map_err(|_| {
         ErrorKind::OtherError(format!(
-            "{provider} returned an invalid response"
+            "TRANSLATION_PROVIDER_FAILED: {provider} returned an invalid response"
         ))
         .into()
     })
@@ -460,32 +544,119 @@ async fn google_translate(
         escape_html(&segment.text)
     };
     let body = json!([[[source], source_language, target_language], "wt_lib"]);
-    let response = send_with_retry(|| {
-        http.post(GOOGLE_TRANSLATE_URL)
-            .header("Content-Type", "application/json+protobuf")
-            .header("X-Goog-API-Key", GOOGLE_TRANSLATE_API_KEY)
-            .json(&body)
-    })
+    let response = send_with_retry(
+        || {
+            http.post(GOOGLE_TRANSLATE_URL)
+                .header("Content-Type", "application/json+protobuf")
+                .header("X-Goog-API-Key", GOOGLE_TRANSLATE_API_KEY)
+                .json(&body)
+        },
+        false,
+    )
     .await?;
     let value = checked_json(response, "Google").await?;
     parse_google_response(&value, segment.format)
 }
 
-async fn microsoft_token(http: &reqwest::Client) -> crate::Result<String> {
-    let response = send_with_retry(|| http.get(MICROSOFT_AUTH_URL)).await?;
+fn microsoft_token_expiry(token: &str) -> Option<Instant> {
+    let payload = token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: Value = serde_json::from_slice(&decoded).ok()?;
+    let expires_at = claims.get("exp")?.as_u64()?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    let remaining = expires_at.checked_sub(now)?;
+    Some(Instant::now() + Duration::from_secs(remaining))
+}
+
+async fn microsoft_token_at(
+    http: &reqwest::Client,
+    auth_url: &str,
+) -> crate::Result<String> {
+    let mut cached = MICROSOFT_TOKEN.lock().await;
+    if let Some(token) = cached.as_ref().filter(|token| {
+        token.expires_at.saturating_duration_since(Instant::now())
+            > MICROSOFT_TOKEN_EXPIRY_MARGIN
+    }) {
+        return Ok(token.value.clone());
+    }
+
+    let response = send_with_retry(|| http.get(auth_url), true).await?;
     if !response.status().is_success() {
+        let status = response.status();
+        let category = if status == StatusCode::TOO_MANY_REQUESTS {
+            "TRANSLATION_RATE_LIMITED"
+        } else {
+            "TRANSLATION_AUTHENTICATION_FAILED"
+        };
         return Err(ErrorKind::OtherError(format!(
-            "Microsoft authentication failed with HTTP {}",
-            response.status()
+            "{category}: Microsoft authentication failed with HTTP {status}"
         ))
         .into());
     }
-    response.text().await.map_err(|_| {
+    let value = response.text().await.map_err(|_| {
         ErrorKind::OtherError(
-            "Microsoft returned an invalid authentication token".to_string(),
+            "TRANSLATION_AUTHENTICATION_FAILED: Microsoft returned an invalid authentication token"
+                .to_string(),
         )
-        .into()
-    })
+    })?;
+    if value.trim().is_empty() {
+        return Err(ErrorKind::OtherError(
+            "TRANSLATION_AUTHENTICATION_FAILED: Microsoft returned an empty authentication token"
+                .to_string(),
+        )
+        .into());
+    }
+    let expires_at = microsoft_token_expiry(&value)
+        .unwrap_or_else(|| Instant::now() + MICROSOFT_TOKEN_FALLBACK_LIFETIME);
+    *cached = Some(CachedMicrosoftToken {
+        value: value.clone(),
+        expires_at,
+    });
+    Ok(value)
+}
+
+async fn microsoft_token(http: &reqwest::Client) -> crate::Result<String> {
+    microsoft_token_at(http, MICROSOFT_AUTH_URL).await
+}
+
+async fn invalidate_microsoft_token(token: &str) {
+    let mut cached = MICROSOFT_TOKEN.lock().await;
+    if cached.as_ref().is_some_and(|cached| cached.value == token) {
+        *cached = None;
+    }
+}
+
+fn microsoft_batches(
+    segments: &[TranslationSegment],
+) -> crate::Result<Vec<&[TranslationSegment]>> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut characters = 0;
+
+    for (index, segment) in segments.iter().enumerate() {
+        let segment_characters = segment.text.chars().count();
+        if segment_characters > MICROSOFT_MAX_BATCH_CHARACTERS {
+            return Err(ErrorKind::InputError(format!(
+                "TRANSLATION_CONTENT_TOO_LONG: Translation segment '{}' exceeds the Microsoft character limit",
+                segment.id
+            ))
+            .into());
+        }
+        if index > start
+            && (index - start >= MICROSOFT_MAX_BATCH_SEGMENTS
+                || characters + segment_characters
+                    > MICROSOFT_MAX_BATCH_CHARACTERS)
+        {
+            batches.push(&segments[start..index]);
+            start = index;
+            characters = 0;
+        }
+        characters += segment_characters;
+    }
+    if start < segments.len() {
+        batches.push(&segments[start..]);
+    }
+    Ok(batches)
 }
 
 fn parse_microsoft_response(
@@ -531,7 +702,6 @@ fn parse_microsoft_response(
 
 async fn microsoft_translate_group(
     http: &reqwest::Client,
-    token: &str,
     segments: &[TranslationSegment],
     source_language: &str,
     target_language: &str,
@@ -549,21 +719,42 @@ async fn microsoft_translate_group(
         .iter()
         .map(|segment| json!({ "Text": segment.text }))
         .collect::<Vec<_>>();
-    let response = send_with_retry(|| {
-        http.post(MICROSOFT_TRANSLATE_URL)
-            .query(&[
-                ("from", source_language),
-                ("to", target_language),
-                ("api-version", "3.0"),
-                ("textType", format),
-            ])
-            .header("Ocp-Apim-Subscription-Key", token)
-            .bearer_auth(token)
-            .json(&body)
-    })
-    .await?;
-    let value = checked_json(response, "Microsoft").await?;
-    parse_microsoft_response(&value, segments)
+
+    for authentication_attempt in 0..=1 {
+        let token = microsoft_token(http).await?;
+        let response = send_with_retry(
+            || {
+                http.post(MICROSOFT_TRANSLATE_URL)
+                    .query(&[
+                        ("from", source_language),
+                        ("to", target_language),
+                        ("api-version", "3.0"),
+                        ("textType", format),
+                    ])
+                    .header("Ocp-Apim-Subscription-Key", &token)
+                    .bearer_auth(&token)
+                    .json(&body)
+            },
+            true,
+        )
+        .await?;
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) && authentication_attempt == 0
+        {
+            invalidate_microsoft_token(&token).await;
+            continue;
+        }
+        let value = checked_json(response, "Microsoft").await?;
+        return parse_microsoft_response(&value, segments);
+    }
+
+    Err(ErrorKind::OtherError(
+        "TRANSLATION_AUTHENTICATION_FAILED: Microsoft authentication failed after refreshing the token"
+            .to_string(),
+    )
+    .into())
 }
 
 fn openai_endpoint(base_url: &str) -> String {
@@ -668,14 +859,17 @@ async fn openai_translate_batch(
         .openai_api_key
         .as_deref()
         .filter(|key| !key.trim().is_empty());
-    let response = send_with_retry(|| {
-        let builder = http.post(&endpoint).json(&body);
-        if let Some(api_key) = api_key {
-            builder.bearer_auth(api_key)
-        } else {
-            builder
-        }
-    })
+    let response = send_with_retry(
+        || {
+            let builder = http.post(&endpoint).json(&body);
+            if let Some(api_key) = api_key {
+                builder.bearer_auth(api_key)
+            } else {
+                builder
+            }
+        },
+        false,
+    )
     .await?;
     let value = checked_json(response, "OpenAI-compatible").await?;
     let content = value
@@ -771,26 +965,21 @@ async fn translate_uncached(
         provider_language(&request.target_language, settings.settings.provider);
     match settings.settings.provider {
         TranslationProvider::Microsoft => {
-            let token = microsoft_token(http).await?;
             let (plain, html): (Vec<_>, Vec<_>) =
                 segments.iter().cloned().partition(|segment| {
                     segment.format == TranslationTextFormat::Plain
                 });
             let mut results = Vec::with_capacity(segments.len());
-            for chunk in plain.chunks(100) {
+            for batch in microsoft_batches(&plain)? {
                 results.extend(
-                    microsoft_translate_group(
-                        http, &token, chunk, &source, &target,
-                    )
-                    .await?,
+                    microsoft_translate_group(http, batch, &source, &target)
+                        .await?,
                 );
             }
-            for chunk in html.chunks(100) {
+            for batch in microsoft_batches(&html)? {
                 results.extend(
-                    microsoft_translate_group(
-                        http, &token, chunk, &source, &target,
-                    )
-                    .await?,
+                    microsoft_translate_group(http, batch, &source, &target)
+                        .await?,
                 );
             }
             Ok(results)
@@ -878,9 +1067,13 @@ pub async fn translate(
     }
 
     if !missing.is_empty() {
-        let translated =
-            translate_uncached(&client()?, &missing, &settings, &request)
-                .await?;
+        let translated = translate_uncached(
+            &TRANSLATION_CLIENT,
+            &missing,
+            &settings,
+            &request,
+        )
+        .await?;
         let now = chrono::Utc::now().timestamp();
         for segment in translated {
             let Some(key) = keys.get(&segment.id) else {
@@ -941,9 +1134,13 @@ pub async fn test_provider(
             format: TranslationTextFormat::Plain,
         }],
     };
-    let mut result =
-        translate_uncached(&client()?, &request.segments, &settings, &request)
-            .await?;
+    let mut result = translate_uncached(
+        &TRANSLATION_CLIENT,
+        &request.segments,
+        &settings,
+        &request,
+    )
+    .await?;
     result.pop().map(|result| result.text).ok_or_else(|| {
         ErrorKind::OtherError(
             "Translation provider returned no test result".to_string(),
@@ -1162,11 +1359,95 @@ mod tests {
         headers.insert(RETRY_AFTER, "3".parse().unwrap());
         assert_eq!(retry_after_delay(&headers), Some(Duration::from_secs(3)));
 
-        headers.insert(RETRY_AFTER, "120".parse().unwrap());
+        headers.insert(RETRY_AFTER, "300".parse().unwrap());
         assert_eq!(
             retry_after_delay(&headers),
-            Some(Duration::from_secs(MAX_RETRY_AFTER_SECONDS))
+            Some(Duration::from_secs(MAX_RETRY_DELAY_SECONDS))
         );
+    }
+
+    #[test]
+    fn parses_microsoft_token_expiry() {
+        let expires_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 300;
+        let payload = URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&json!({ "exp": expires_at })).unwrap());
+        let token = format!("header.{payload}.signature");
+        let remaining = microsoft_token_expiry(&token)
+            .unwrap()
+            .saturating_duration_since(Instant::now());
+
+        assert!(remaining > Duration::from_secs(295));
+        assert!(remaining <= Duration::from_secs(300));
+        assert!(microsoft_token_expiry("not-a-jwt").is_none());
+    }
+
+    #[test]
+    fn batches_microsoft_requests_by_count_and_characters() {
+        let by_count = (0..101)
+            .map(|index| segment(&index.to_string(), "a"))
+            .collect::<Vec<_>>();
+        let batches = microsoft_batches(&by_count).unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), MICROSOFT_MAX_BATCH_SEGMENTS);
+        assert_eq!(batches[1].len(), 1);
+
+        let by_characters = vec![
+            segment("a", &"a".repeat(30_000)),
+            segment("b", &"b".repeat(30_000)),
+        ];
+        let batches = microsoft_batches(&by_characters).unwrap();
+        assert_eq!(batches.len(), 2);
+
+        let oversized = vec![segment(
+            "oversized",
+            &"a".repeat(MICROSOFT_MAX_BATCH_CHARACTERS + 1),
+        )];
+        assert!(microsoft_batches(&oversized).is_err());
+    }
+
+    #[tokio::test]
+    async fn reuses_cached_microsoft_token() {
+        *MICROSOFT_TOKEN.lock().await = None;
+        *MICROSOFT_COOLDOWN.lock().await = None;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let expires_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 300;
+        let payload = URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&json!({ "exp": expires_at })).unwrap());
+        let token = format!("header.{payload}.signature");
+        let expected_token = token.clone();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = socket.read(&mut buffer).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                token.len(),
+                token
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let auth_url = format!("http://{address}/auth");
+
+        assert_eq!(
+            microsoft_token_at(&http, &auth_url).await.unwrap(),
+            expected_token
+        );
+        assert_eq!(
+            microsoft_token_at(&http, &auth_url).await.unwrap(),
+            expected_token
+        );
+        server.await.unwrap();
+        *MICROSOFT_TOKEN.lock().await = None;
     }
 
     #[test]

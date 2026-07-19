@@ -842,6 +842,78 @@
 	"app.instance.hide-show-unselected": {
 		"message": "显示/隐藏未选项"
 	},
+	"app.instance.icon-picker.description": {
+		"message": "选择一个内置 Minecraft 图标，或上传自己的图片。"
+	},
+	"app.instance.icon-picker.icon.bread": {
+		"message": "面包"
+	},
+	"app.instance.icon-picker.icon.carrot": {
+		"message": "胡萝卜"
+	},
+	"app.instance.icon-picker.icon.cooked-chicken": {
+		"message": "熟鸡肉"
+	},
+	"app.instance.icon-picker.icon.crafting-table": {
+		"message": "工作台"
+	},
+	"app.instance.icon-picker.icon.diamond-axe": {
+		"message": "钻石斧"
+	},
+	"app.instance.icon-picker.icon.diamond-block": {
+		"message": "钻石块"
+	},
+	"app.instance.icon-picker.icon.diamond-sword": {
+		"message": "钻石剑"
+	},
+	"app.instance.icon-picker.icon.end-stone": {
+		"message": "末地石"
+	},
+	"app.instance.icon-picker.icon.furnace": {
+		"message": "熔炉"
+	},
+	"app.instance.icon-picker.icon.glass-bottle": {
+		"message": "玻璃瓶"
+	},
+	"app.instance.icon-picker.icon.gold-block": {
+		"message": "金块"
+	},
+	"app.instance.icon-picker.icon.golden-apple": {
+		"message": "金苹果"
+	},
+	"app.instance.icon-picker.icon.grass-block": {
+		"message": "草方块"
+	},
+	"app.instance.icon-picker.icon.iron-block": {
+		"message": "铁块"
+	},
+	"app.instance.icon-picker.icon.item-frame": {
+		"message": "物品展示框"
+	},
+	"app.instance.icon-picker.icon.netherrack": {
+		"message": "下界岩"
+	},
+	"app.instance.icon-picker.icon.oak-sapling": {
+		"message": "橡树树苗"
+	},
+	"app.instance.icon-picker.icon.stone": {
+		"message": "石头"
+	},
+	"app.instance.icon-picker.icon.totem-of-undying": {
+		"message": "不死图腾"
+	},
+	"app.instance.icon-picker.icon.water-bucket": {
+		"message": "水桶"
+	},
+	"app.instance.icon-picker.load-error": {
+		"message": "无法加载内置图标。"
+	},
+	"app.instance.icon-picker.title": {
+		"message": "选择实例图标"
+	},
+	"app.instance.icon-picker.upload": {
+		"message": "上传图片"
+	},
 	"app.instance.join-server": {
 		"message": "加入服务器"
 	},
@@ -1854,6 +1926,18 @@
 	"app.translation-settings.title": {
 		"message": "翻译"
 	},
+	"app.translation.error.authentication": {
+		"message": "翻译服务认证失败，请稍后重试。"
+	},
+	"app.translation.error.content-too-long": {
+		"message": "此内容超过了所选翻译服务的长度限制。"
+	},
+	"app.translation.error.network": {
+		"message": "无法连接翻译服务，请检查网络或代理设置。"
+	},
+	"app.translation.error.rate-limited": {
+		"message": "翻译服务暂时受到速率限制，请稍后重试。"
+	},
 	"app.update-popup.body.download-complete": {
 		"message": "Axolotl Launcher v{version} 更新已下载完成！立即重启更新，或退出时自动安装。"
 	},
@@ -2449,6 +2533,6 @@
 		"message": "未知文件警告"
 	},
 	"omorphia.component.loading-indicator.label": {
-		"message": "加载中"
+		"defaultMessage": "加载中"
 	}
 }
