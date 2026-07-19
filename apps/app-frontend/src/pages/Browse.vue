@@ -562,6 +562,26 @@ const messages = defineMessages({
 		id: 'app.browse.project-type.modpacks',
 		defaultMessage: 'Modpacks',
 	},
+	modsProjectType: {
+		id: 'app.browse.project-type.mods',
+		defaultMessage: 'Mods',
+	},
+	resourcepacksProjectType: {
+		id: 'app.browse.project-type.resourcepacks',
+		defaultMessage: 'Resource Packs',
+	},
+	datapacksProjectType: {
+		id: 'app.browse.project-type.datapacks',
+		defaultMessage: 'Data Packs',
+	},
+	shadersProjectType: {
+		id: 'app.browse.project-type.shaders',
+		defaultMessage: 'Shaders',
+	},
+	serversProjectType: {
+		id: 'app.browse.project-type.servers',
+		defaultMessage: 'Servers',
+	},
 	modLoaderProvidedByServer: {
 		id: 'search.filter.locked.server-loader.title',
 		defaultMessage: 'Loader is provided by the server',
@@ -700,12 +720,27 @@ const selectableProjectTypes = computed(() => {
 	}
 
 	return [
-		{ label: 'Modpacks', href: `/browse/modpack${suffix}`, shown: modpacks },
-		{ label: 'Mods', href: `/browse/mod${suffix}`, shown: mods },
-		{ label: 'Resource Packs', href: `/browse/resourcepack${suffix}` },
-		{ label: 'Data Packs', href: `/browse/datapack${suffix}`, shown: dataPacks },
-		{ label: 'Shaders', href: `/browse/shader${suffix}` },
-		{ label: 'Servers', href: `/browse/server${suffix}`, shown: !instance.value },
+		{
+			label: formatMessage(messages.modpacksProjectType),
+			href: `/browse/modpack${suffix}`,
+			shown: modpacks,
+		},
+		{ label: formatMessage(messages.modsProjectType), href: `/browse/mod${suffix}`, shown: mods },
+		{
+			label: formatMessage(messages.resourcepacksProjectType),
+			href: `/browse/resourcepack${suffix}`,
+		},
+		{
+			label: formatMessage(messages.datapacksProjectType),
+			href: `/browse/datapack${suffix}`,
+			shown: dataPacks,
+		},
+		{ label: formatMessage(messages.shadersProjectType), href: `/browse/shader${suffix}` },
+		{
+			label: formatMessage(messages.serversProjectType),
+			href: `/browse/server${suffix}`,
+			shown: !instance.value,
+		},
 	]
 })
 

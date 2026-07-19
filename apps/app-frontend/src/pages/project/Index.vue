@@ -236,17 +236,17 @@
 				<NavTabs
 					:links="[
 						{
-							label: 'Description',
+							label: formatMessage(commonProjectSettingsMessages.description),
 							href: projectDescriptionHref,
 						},
 						{
-							label: 'Versions',
+							label: formatMessage(commonProjectSettingsMessages.versions),
 							href: versionsHref,
 							subpages: ['version'],
 							shown: projectV3?.minecraft_server == null,
 						},
 						{
-							label: 'Gallery',
+							label: formatMessage(commonProjectSettingsMessages.gallery),
 							href: projectGalleryHref,
 							shown: data.gallery.length > 0,
 						},
@@ -327,6 +327,7 @@ import {
 	BrowseInstallHeader,
 	ButtonStyled,
 	commonMessages,
+	commonProjectSettingsMessages,
 	CreationFlowModal,
 	defineMessages,
 	getTargetInstallPreferences,
