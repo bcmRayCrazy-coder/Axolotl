@@ -2,18 +2,25 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
-const [command, tag, inputPath] = process.argv.slice(2)
+const [command, tag, outputDirectory] = process.argv.slice(2)
 const apiEndpoint = (process.env.CNB_API_ENDPOINT || 'https://api.cnb.cool').replace(/\/$/, '')
 const repo = process.env.CNB_REPO_SLUG || 'axlmc/Axolotl'
 const token = process.env.CNB_TOKEN
 const tokenUser = process.env.CNB_TOKEN_USER_NAME || 'cnb'
 const repoUrl = process.env.CNB_REPO_URL_HTTPS || `https://cnb.cool/${repo}.git`
+const githubReleaseBaseUrl = (
+	process.env.GITHUB_RELEASE_BASE_URL || 'https://github.com/Mystic-Stars/Axolotl/releases/download'
+).replace(/\/$/, '')
+const githubApiBaseUrl = (
+	process.env.GITHUB_API_BASE_URL || 'https://api.github.com/repos/Mystic-Stars/Axolotl'
+).replace(/\/$/, '')
+const pollIntervalMs = Number(process.env.RELEASE_POLL_INTERVAL_MS || 30_000)
 
-if (!command || !tag || !inputPath || !token) {
-	throw new Error(
-		'Usage: node cnb-release.mjs <upload|finalize> <tag> <path>; CNB_TOKEN is required',
-	)
+if (command !== 'finalize' || !tag || !outputDirectory || !token) {
+	throw new Error('Usage: node cnb-release.mjs finalize <tag> <output-dir>; CNB_TOKEN is required')
 }
 
 const apiHeaders = {
@@ -98,8 +105,12 @@ async function uploadAsset(release, filePath) {
 	const upload = await uploadResponse.json()
 	const fileResponse = await fetch(upload.upload_url, {
 		method: 'PUT',
-		body: fs.readFileSync(filePath),
-		headers: { 'Content-Type': 'application/octet-stream' },
+		body: fs.createReadStream(filePath),
+		duplex: 'half',
+		headers: {
+			'Content-Length': String(size),
+			'Content-Type': 'application/octet-stream',
+		},
 	})
 	if (!fileResponse.ok) {
 		throw new Error(
@@ -112,46 +123,102 @@ async function uploadAsset(release, filePath) {
 	console.log(`Uploaded ${assetName}`)
 }
 
-async function uploadDirectory(directory) {
-	const release = await ensureRelease()
-	const files = fs
-		.readdirSync(directory, { withFileTypes: true })
-		.filter((entry) => entry.isFile())
-		.map((entry) => path.join(directory, entry.name))
-		.sort((left, right) => {
-			const leftIsManifest = path.basename(left).startsWith('latest.')
-			const rightIsManifest = path.basename(right).startsWith('latest.')
-			return Number(leftIsManifest) - Number(rightIsManifest) || left.localeCompare(right)
-		})
-	for (const filePath of files) {
-		await uploadAsset(release, filePath)
-	}
-}
-
-async function waitForPlatformManifests() {
-	const required = [
-		'latest.linux-x64.json',
-		'latest.linux-arm64.json',
-		'latest.windows-x64.json',
-		'latest.macos-universal.json',
-	]
-
+async function waitForGithubManifest() {
+	const manifestUrl = `${githubReleaseBaseUrl}/${encodeURIComponent(tag)}/latest.json`
 	for (let attempt = 0; attempt < 180; attempt++) {
-		const release = await getRelease()
-		const assets = new Map((release?.assets || []).map((asset) => [asset.name, asset]))
-		if (required.every((name) => assets.has(name))) {
-			return { release, assets, required }
+		let response
+		try {
+			response = await fetch(manifestUrl)
+		} catch (error) {
+			console.log(`GitHub release is not ready: ${error}`)
 		}
-		console.log(`Waiting for platform manifests (${attempt + 1}/180)`)
-		await new Promise((resolve) => setTimeout(resolve, 30_000))
+
+		if (response?.ok) {
+			const manifest = await response.json()
+			if (manifest.version !== tag.replace(/^v/, '')) {
+				throw new Error(`GitHub manifest version ${manifest.version} does not match ${tag}`)
+			}
+			return manifest
+		}
+		if (response && response.status !== 404 && response.status < 500) {
+			throw new Error(
+				`Downloading GitHub manifest failed (${response.status}): ${await response.text()}`,
+			)
+		}
+
+		console.log(`Waiting for GitHub release manifest (${attempt + 1}/180)`)
+		await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
 	}
-	throw new Error('Timed out waiting for all platform manifests')
+	throw new Error('Timed out waiting for the GitHub release manifest')
 }
 
-async function downloadJson(asset) {
-	const assetUrl = new URL(asset.url || asset.browser_download_url, apiEndpoint).toString()
-	const response = await apiRequest(assetUrl)
+async function getGithubRelease() {
+	const response = await fetch(`${githubApiBaseUrl}/releases/tags/${encodeURIComponent(tag)}`, {
+		headers: {
+			Accept: 'application/vnd.github+json',
+			'User-Agent': 'Axolotl-CNB-Release',
+		},
+	})
+	if (!response.ok) {
+		throw new Error(`Loading GitHub release failed (${response.status}): ${await response.text()}`)
+	}
 	return await response.json()
+}
+
+async function downloadFile(url, outputPath) {
+	const response = await fetch(url)
+	if (!response.ok || !response.body) {
+		throw new Error(`Downloading ${url} failed (${response.status}): ${await response.text()}`)
+	}
+	await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outputPath))
+}
+
+async function mirrorGithubAssets(release, githubRelease) {
+	const mirroredNames = new Set()
+	for (const asset of githubRelease.assets || []) {
+		if (asset.name === 'latest.json') {
+			continue
+		}
+		if (!asset.name || !asset.browser_download_url || mirroredNames.has(asset.name)) {
+			throw new Error(`Invalid or duplicate GitHub release asset: ${asset.name}`)
+		}
+		const outputPath = path.join(outputDirectory, asset.name)
+		await downloadFile(asset.browser_download_url, outputPath)
+		await uploadAsset(release, outputPath)
+		mirroredNames.add(asset.name)
+	}
+	return mirroredNames
+}
+
+function createCnbManifest(githubManifest, mirroredNames) {
+	const requiredPlatforms = [
+		'darwin-aarch64',
+		'darwin-x86_64',
+		'linux-aarch64',
+		'linux-x86_64',
+		'windows-x86_64',
+	]
+	const platforms = {}
+	for (const platform of requiredPlatforms) {
+		const update = githubManifest.platforms?.[platform]
+		if (!update || typeof update.signature !== 'string' || update.signature.trim().length < 32) {
+			throw new Error(`Missing signed GitHub update for ${platform}`)
+		}
+		const filename = decodeURIComponent(path.posix.basename(new URL(update.url).pathname))
+		if (!mirroredNames.has(filename)) {
+			throw new Error(`GitHub release is missing updater artifact ${filename} for ${platform}`)
+		}
+		platforms[platform] = {
+			...update,
+			url: `https://cnb.cool/${repo}/-/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(filename)}`,
+		}
+	}
+
+	return {
+		...githubManifest,
+		version: tag.replace(/^v/, ''),
+		platforms,
+	}
 }
 
 function publishUpdateBranch(manifestPath) {
@@ -180,47 +247,13 @@ function publishUpdateBranch(manifestPath) {
 	)
 }
 
-async function finalizeRelease(outputDirectory) {
+async function finalizeRelease() {
 	fs.mkdirSync(outputDirectory, { recursive: true })
-	const { release, assets, required } = await waitForPlatformManifests()
-	const manifests = await Promise.all(required.map((name) => downloadJson(assets.get(name))))
-	const platforms = {}
-	for (const manifest of manifests) {
-		if (manifest.version !== tag.replace(/^v/, '')) {
-			throw new Error(`Platform manifest version ${manifest.version} does not match ${tag}`)
-		}
-		for (const [platform, update] of Object.entries(manifest.platforms || {})) {
-			if (platforms[platform]) {
-				throw new Error(`Duplicate platform in manifests: ${platform}`)
-			}
-			const filename = path.posix.basename(update.url)
-			platforms[platform] = {
-				...update,
-				url: `https://cnb.cool/${repo}/-/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(filename)}`,
-			}
-		}
-	}
-
-	const requiredPlatforms = [
-		'darwin-aarch64',
-		'darwin-x86_64',
-		'linux-aarch64',
-		'linux-x86_64',
-		'windows-x86_64',
-	]
-	for (const platform of requiredPlatforms) {
-		const update = platforms[platform]
-		if (!update || typeof update.signature !== 'string' || update.signature.trim().length < 32) {
-			throw new Error(`Missing signed update for ${platform}`)
-		}
-	}
-
-	const manifest = {
-		version: tag.replace(/^v/, ''),
-		notes: process.env.CNB_TAG_RELEASE_DESC || `Axolotl Launcher ${tag}`,
-		pub_date: new Date().toISOString(),
-		platforms,
-	}
+	const githubManifest = await waitForGithubManifest()
+	const githubRelease = await getGithubRelease()
+	const release = await ensureRelease()
+	const mirroredNames = await mirrorGithubAssets(release, githubRelease)
+	const manifest = createCnbManifest(githubManifest, mirroredNames)
 	const manifestPath = path.join(outputDirectory, 'latest.json')
 	fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 	await uploadAsset(release, manifestPath)
@@ -239,10 +272,4 @@ async function finalizeRelease(outputDirectory) {
 	console.log(`Published CNB release ${tag}`)
 }
 
-if (command === 'upload') {
-	await uploadDirectory(inputPath)
-} else if (command === 'finalize') {
-	await finalizeRelease(inputPath)
-} else {
-	throw new Error(`Unknown command: ${command}`)
-}
+await finalizeRelease()
