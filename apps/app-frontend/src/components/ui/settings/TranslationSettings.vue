@@ -14,6 +14,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 
 import {
 	clearTranslationCache,
+	getTranslationErrorKind,
 	getTranslationSettings,
 	setTranslationSecret,
 	testTranslationProvider,
@@ -139,6 +140,22 @@ const messages = defineMessages({
 		id: 'app.translation-settings.operation-failed',
 		defaultMessage: 'The translation operation failed. Check the configuration and try again.',
 	},
+	rateLimited: {
+		id: 'app.translation.error.rate-limited',
+		defaultMessage: 'The translation service is temporarily rate limited. Please try again later.',
+	},
+	authenticationFailed: {
+		id: 'app.translation.error.authentication',
+		defaultMessage: 'The translation service could not authenticate. Please try again later.',
+	},
+	contentTooLong: {
+		id: 'app.translation.error.content-too-long',
+		defaultMessage: 'This content is too long for the selected translation service.',
+	},
+	networkFailed: {
+		id: 'app.translation.error.network',
+		defaultMessage: 'The translation service could not be reached. Check your network or proxy.',
+	},
 })
 
 const providers: TranslationProvider[] = ['microsoft', 'google', 'openai-compatible']
@@ -197,8 +214,17 @@ const styleOptions = computed(() =>
 )
 const stylePreviewClass = computed(() => `translation-style-preview-${settings.value.style}`)
 
-function reportOperationError() {
-	handleError(formatMessage(messages.operationFailed))
+function reportOperationError(error?: unknown) {
+	const message = error
+		? {
+				'rate-limited': messages.rateLimited,
+				authentication: messages.authenticationFailed,
+				'content-too-long': messages.contentTooLong,
+				network: messages.networkFailed,
+				provider: messages.operationFailed,
+			}[getTranslationErrorKind(error)]
+		: messages.operationFailed
+	handleError(formatMessage(message))
 }
 
 watch(
@@ -221,8 +247,8 @@ async function saveSecret() {
 		settings.value.openai_has_api_key = !!openaiSecret.value.trim()
 		openaiSecret.value = ''
 		return true
-	} catch {
-		reportOperationError()
+	} catch (error) {
+		reportOperationError(error)
 		return false
 	}
 }
@@ -231,8 +257,8 @@ async function clearSecret() {
 	try {
 		await setTranslationSecret('openai-compatible', null)
 		settings.value.openai_has_api_key = false
-	} catch {
-		reportOperationError()
+	} catch (error) {
+		reportOperationError(error)
 	}
 }
 
@@ -246,8 +272,8 @@ async function testProvider() {
 		}
 		const result = await testTranslationProvider(settings.value.provider)
 		status.value = formatMessage(messages.testSuccess, { translation: result })
-	} catch {
-		reportOperationError()
+	} catch (error) {
+		reportOperationError(error)
 	} finally {
 		testing.value = false
 	}
@@ -257,8 +283,8 @@ async function clearCache() {
 	try {
 		await clearTranslationCache()
 		status.value = formatMessage(messages.cacheCleared)
-	} catch {
-		reportOperationError()
+	} catch (error) {
+		reportOperationError(error)
 	}
 }
 </script>

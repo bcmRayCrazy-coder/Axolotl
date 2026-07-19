@@ -21,7 +21,7 @@ pub use self::export_mrpack::{
 pub use self::get::{get, get_many, list};
 pub use self::install::get_optimal_jre_key;
 pub(crate) use self::lifecycle::create;
-pub use self::lifecycle::{edit, edit_icon, remove};
+pub use self::lifecycle::{cache_icon, edit, edit_icon, remove};
 pub use self::paths::{get_full_path, get_mod_full_path};
 pub use self::projects::{
     InstallProjectWithDependenciesRequest, add_project_from_path,

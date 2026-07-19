@@ -129,9 +129,7 @@ const messages = defineMessages({
 					type="button"
 					:disabled="copied"
 					:aria-label="
-						copied
-							? formatMessage(messages.copiedQqGroup)
-							: formatMessage(messages.copyQqGroup)
+						copied ? formatMessage(messages.copiedQqGroup) : formatMessage(messages.copyQqGroup)
 					"
 					class="flex min-w-0 items-center gap-3 rounded-xl bg-surface-4 p-4 text-left transition-colors hover:bg-surface-5 disabled:cursor-default"
 					@click="copyQqGroupNumber"
@@ -154,9 +152,7 @@ const messages = defineMessages({
 						<CopyIcon v-else class="size-5 text-secondary" />
 						<span class="sr-only">
 							{{
-								copied
-									? formatMessage(messages.copiedQqGroup)
-									: formatMessage(messages.copyQqGroup)
+								copied ? formatMessage(messages.copiedQqGroup) : formatMessage(messages.copyQqGroup)
 							}}
 						</span>
 					</span>
@@ -168,9 +164,7 @@ const messages = defineMessages({
 					rel="noopener noreferrer"
 					class="flex min-w-0 items-center gap-3 rounded-xl bg-surface-4 p-4 text-left transition-colors hover:bg-surface-5"
 				>
-					<span
-						class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-surface-2"
-					>
+					<span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-surface-2">
 						<img :src="AfdianIcon" alt="" class="size-7 object-contain" />
 					</span>
 					<span class="min-w-0 flex-1">

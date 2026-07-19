@@ -84,6 +84,36 @@ export async function clearTranslationCache(): Promise<void> {
 	await invoke('plugin:translation|translation_clear_cache')
 }
 
+export type TranslationErrorKind =
+	| 'rate-limited'
+	| 'authentication'
+	| 'content-too-long'
+	| 'network'
+	| 'provider'
+
+function translationErrorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message
+	if (typeof error === 'string') return error
+	if (
+		typeof error === 'object' &&
+		error !== null &&
+		'message' in error &&
+		typeof error.message === 'string'
+	) {
+		return error.message
+	}
+	return String(error)
+}
+
+export function getTranslationErrorKind(error: unknown): TranslationErrorKind {
+	const message = translationErrorMessage(error)
+	if (message.includes('TRANSLATION_RATE_LIMITED')) return 'rate-limited'
+	if (message.includes('TRANSLATION_AUTHENTICATION_FAILED')) return 'authentication'
+	if (message.includes('TRANSLATION_CONTENT_TOO_LONG')) return 'content-too-long'
+	if (message.includes('TRANSLATION_NETWORK_FAILED')) return 'network'
+	return 'provider'
+}
+
 function containsReadableText(element: Element): boolean {
 	if (element.matches('pre, script, style, video, audio, iframe')) return false
 	const clone = element.cloneNode(true) as Element

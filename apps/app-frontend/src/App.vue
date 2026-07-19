@@ -64,6 +64,7 @@ import AuthGrantFlowWaitModal from '@/components/ui/modal/AuthGrantFlowWaitModal
 import CommunityAnnouncementModal from '@/components/ui/modal/CommunityAnnouncementModal.vue'
 import CurseForgeManualDownloadsModal from '@/components/ui/modal/CurseForgeManualDownloadsModal.vue'
 import InstallToPlayModal from '@/components/ui/modal/InstallToPlayModal.vue'
+import InstanceIconPickerModal from '@/components/ui/modal/InstanceIconPickerModal.vue'
 import ModpackAlreadyInstalledModal from '@/components/ui/modal/ModpackAlreadyInstalledModal.vue'
 import UpdateToPlayModal from '@/components/ui/modal/UpdateToPlayModal.vue'
 import NavButton from '@/components/ui/NavButton.vue'
@@ -192,6 +193,7 @@ provideModalBehavior({
 })
 
 const {
+	instanceIconPickerModal,
 	installationModal,
 	unknownPackWarningModal,
 	fetchExistingInstanceNames,
@@ -1151,6 +1153,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		<Suspense>
 			<AuthGrantFlowWaitModal ref="modrinthLoginFlowWaitModal" @flow-cancel="cancelLogin" />
 		</Suspense>
+		<InstanceIconPickerModal ref="instanceIconPickerModal" />
 		<CreationFlowModal
 			ref="installationModal"
 			type="instance"
