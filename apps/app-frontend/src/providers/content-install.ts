@@ -30,6 +30,7 @@ import {
 	setCurseForgeManualDownloads,
 } from '@/helpers/curseforge-manual'
 import { instance_listener } from '@/helpers/events.js'
+import { isBuiltInInstanceIcon } from '@/helpers/instance-icon-frame'
 import {
 	install_create_instance,
 	install_create_modpack_instance,
@@ -798,6 +799,7 @@ export function createContentInstall(opts: {
 					id: instance.id,
 					name: instance.name,
 					iconUrl: instance.icon_path ? convertFileSrc(instance.icon_path) : null,
+					iconFrameless: isBuiltInInstanceIcon(instance.icon_path),
 					installed: instance.installed,
 					compatible: instance.compatible,
 					installing: false,

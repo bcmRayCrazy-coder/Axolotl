@@ -9,7 +9,6 @@ import {
 	WrenchIcon,
 } from '@modrinth/assets'
 import {
-	Avatar,
 	commonMessages,
 	defineMessage,
 	TabbedModal,
@@ -18,9 +17,9 @@ import {
 } from '@modrinth/ui'
 import type { PlatformTag } from '@modrinth/utils'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { computed, nextTick, ref, watch } from 'vue'
 
+import InstanceIcon from '@/components/ui/InstanceIcon.vue'
 import GeneralSettings from '@/components/ui/instance_settings/GeneralSettings.vue'
 import HooksSettings from '@/components/ui/instance_settings/HooksSettings.vue'
 import InstallationSettings from '@/components/ui/instance_settings/InstallationSettings.vue'
@@ -186,10 +185,10 @@ defineExpose({ show, hide })
 	>
 		<template #title>
 			<span class="flex items-center gap-2 text-lg font-semibold text-primary">
-				<Avatar
-					:src="instance.icon_path ? convertFileSrc(instance.icon_path) : undefined"
+				<InstanceIcon
+					:icon-path="instance.icon_path"
+					:instance-id="props.instance.id"
 					size="24px"
-					:tint-by="props.instance.id"
 				/>
 				{{ instance.name }} <ChevronRightIcon />
 				<span class="font-extrabold text-contrast">{{

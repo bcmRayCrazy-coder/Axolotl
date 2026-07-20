@@ -15,11 +15,11 @@
 			<UpdateToPlayModal ref="updateToPlayModal" :instance="instance" />
 			<ContentPageHeader>
 				<template #icon>
-					<Avatar
-						:src="icon ? icon : undefined"
+					<InstanceIcon
+						:icon-path="instance.icon_path"
+						:instance-id="instance.id"
 						:alt="instance.name"
 						size="64px"
-						:tint-by="instance.id"
 					/>
 				</template>
 				<template #title>
@@ -342,7 +342,6 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import { useQueryClient } from '@tanstack/vue-query'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -351,6 +350,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import ContextMenu from '@/components/ui/ContextMenu.vue'
 import ExportModal from '@/components/ui/ExportModal.vue'
+import InstanceIcon from '@/components/ui/InstanceIcon.vue'
 import InstanceSettingsModal from '@/components/ui/modal/InstanceSettingsModal.vue'
 import UpdateToPlayModal from '@/components/ui/modal/UpdateToPlayModal.vue'
 import {
@@ -799,10 +799,6 @@ const unlistenProcesses = await process_listener((e: { event: string; instance_i
 		playing.value = false
 	}
 })
-
-const icon = computed(() =>
-	instance.value?.icon_path ? convertFileSrc(instance.value.icon_path) : null,
-)
 
 const settingsModal = ref<InstanceType<typeof InstanceSettingsModal>>()
 
