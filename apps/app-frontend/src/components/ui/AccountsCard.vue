@@ -387,16 +387,33 @@ function createSkinHeadDataUrl(textureUrl: string) {
 const defaultSteveHeadUrl = createSkinHeadDataUrl(steveSkinTexture)
 
 async function refreshValues() {
+	const targetUser = defaultUser.value
 	defaultUser.value = await get_default_user(offline.value).catch(handleError)
 	if (offline.value && defaultUser.value) {
 		await set_default_user(defaultUser.value).catch(handleError)
 	}
 	const userList = await users(offline.value).catch(handleError)
-	accounts.value = Array.isArray(userList) ? [...userList] : []
-	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
+	accounts.value = Array.isArray(userList)
+		? [...(userList as unknown as MinecraftCredential[])]
+		: []
+	const typeOrder = {
+		microsoft: 0,
+		yggdrasil: 1,
+		offline: 2,
+	} as const
+	accounts.value.sort((a, b) => {
+		const nameCmp = (a.profile?.name ?? '').localeCompare(b.profile?.name ?? '')
+		if (nameCmp !== 0) return nameCmp
+
+		return (
+			(typeOrder[a.account_type as keyof typeof typeOrder] ?? 3) -
+			(typeOrder[b.account_type as keyof typeof typeOrder] ?? 3)
+		)
+	})
 	await renderYggdrasilAccountHeads(accounts.value)
 	try {
 		const skins = await get_available_skins()
+		if (defaultUser.value !== targetUser) return
 		equippedSkin.value = skins.find((skin) => skin.is_equipped) ?? null
 
 		if (equippedSkin.value) {
@@ -535,6 +552,7 @@ function getAccountAvatarUrl(account: MinecraftCredential) {
 
 async function setAccount(account: MinecraftCredential) {
 	defaultUser.value = account.profile.id
+	equippedSkin.value = null
 	await set_default_user(account.profile.id).catch(handleError)
 	await refreshValues()
 	emit('change')
