@@ -629,6 +629,9 @@
   "app.error.directory-title": {
     "message": "Could not change app directory"
   },
+  "app.error.export-logs": {
+    "message": "Export error logs"
+  },
   "app.error.generic-title": {
     "message": "An error occurred"
   },
@@ -1376,6 +1379,9 @@
   "app.navigation.worlds": {
     "message": "Worlds"
   },
+  "app.notification.export-error-logs": {
+    "message": "Export error logs"
+  },
   "app.notification.warning": {
     "message": "Warning"
   },
@@ -1489,6 +1495,18 @@
   },
   "app.settings.about.project-website": {
     "message": "Visit the project website"
+  },
+  "app.settings.about.test-error": {
+    "message": "Trigger test error"
+  },
+  "app.settings.about.test-error-message": {
+    "message": "Test error triggered from the development settings."
+  },
+  "app.settings.about.test-notification-error": {
+    "message": "Trigger notification test error"
+  },
+  "app.settings.about.test-notification-error-title": {
+    "message": "Test notification error"
   },
   "app.settings.about.qq-group": {
     "message": "Player QQ group"

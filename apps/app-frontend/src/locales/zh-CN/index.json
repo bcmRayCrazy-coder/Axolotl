@@ -629,6 +629,9 @@
   "app.error.directory-title": {
     "message": "无法更改应用目录"
   },
+  "app.error.export-logs": {
+    "message": "导出错误日志"
+  },
   "app.error.generic-title": {
     "message": "发生错误"
   },
@@ -1376,6 +1379,9 @@
   "app.navigation.worlds": {
     "message": "世界"
   },
+  "app.notification.export-error-logs": {
+    "message": "导出错误日志"
+  },
   "app.notification.warning": {
     "message": "警告"
   },
@@ -1489,6 +1495,18 @@
   },
   "app.settings.about.project-website": {
     "message": "访问项目网站"
+  },
+  "app.settings.about.test-error": {
+    "message": "触发测试错误"
+  },
+  "app.settings.about.test-error-message": {
+    "message": "已从开发设置触发测试错误。"
+  },
+  "app.settings.about.test-notification-error": {
+    "message": "触发通知测试错误"
+  },
+  "app.settings.about.test-notification-error-title": {
+    "message": "测试通知错误"
   },
   "app.settings.about.qq-group": {
     "message": "玩家 QQ 群"

@@ -88,6 +88,7 @@ import {
 	areUpdatesEnabled,
 	checkAppUpdate,
 	enqueueUpdateForInstallation,
+	exportErrorLogs,
 	getOS,
 	getUpdateSize,
 	isDev,
@@ -334,7 +335,27 @@ const messages = defineMessages({
 		id: 'app.notification.warning',
 		defaultMessage: 'Warning',
 	},
+	exportErrorLogs: {
+		id: 'app.notification.export-error-logs',
+		defaultMessage: 'Export error logs',
+	},
 })
+
+function getErrorNotificationDetails(notification) {
+	const details = [notification.title, notification.text, notification.errorCode].filter(Boolean)
+	if (notification.supportData) {
+		details.push(JSON.stringify(notification.supportData, null, 2))
+	}
+	return details.join('\n\n')
+}
+
+async function exportNotificationErrorLogs(notification) {
+	try {
+		await exportErrorLogs(getErrorNotificationDetails(notification))
+	} catch (error) {
+		handleError(error)
+	}
+}
 
 async function setupApp() {
 	const initialSettings = await getSettings()
@@ -1391,8 +1412,16 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		</div>
 	</div>
 	<I18nDebugPanel />
-	<NotificationPanel :has-sidebar="sidebarVisible" />
-	<PopupNotificationPanel :has-sidebar="sidebarVisible" />
+	<NotificationPanel
+		:has-sidebar="sidebarVisible"
+		:on-error-action="exportNotificationErrorLogs"
+		:error-action-label="formatMessage(messages.exportErrorLogs)"
+	/>
+	<PopupNotificationPanel
+		:has-sidebar="sidebarVisible"
+		:on-error-action="exportNotificationErrorLogs"
+		:error-action-label="formatMessage(messages.exportErrorLogs)"
+	/>
 	<CommunityAnnouncementModal ref="communityAnnouncementModal" />
 	<ErrorModal ref="errorModal" />
 	<MinecraftAuthErrorModal ref="minecraftAuthErrorModal" />
