@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT\n                max_concurrent_writes, max_concurrent_downloads,\n                auto_concurrent_downloads, minecraft_metadata_source,\n                minecraft_file_source, modrinth_source, curseforge_source,\n                theme, locale, default_page, collapsed_navigation, hide_nametag_skins_page, advanced_rendering, native_decorations,\n                discord_rpc, developer_mode, telemetry, personalized_ads,\n                onboarded,\n                json(extra_launch_args) extra_launch_args, json(custom_env_vars) custom_env_vars,\n                mc_memory_max, mc_force_fullscreen, mc_game_resolution_x, mc_game_resolution_y, hide_on_process_start,\n                hook_pre_launch, hook_wrapper, hook_post_exit,\n                custom_dir, prev_custom_dir, migrated, json(feature_flags) feature_flags, toggle_sidebar,\n                skipped_update, pending_update_toast_for_version, auto_download_updates, accent_color,\n                custom_background_path, custom_background_blur, custom_background_opacity,\n                version\n            FROM settings\n            ",
+  "query": "\n            SELECT\n                max_concurrent_writes, max_concurrent_downloads,\n                auto_concurrent_downloads, minecraft_metadata_source,\n                minecraft_file_source, modrinth_source, curseforge_source,\n                theme, locale, default_page, collapsed_navigation, hide_nametag_skins_page, advanced_rendering, native_decorations,\n                discord_rpc, developer_mode, telemetry, personalized_ads,\n                onboarded,\n                json(extra_launch_args) extra_launch_args, json(custom_env_vars) custom_env_vars,\n                mc_memory_max, mc_force_fullscreen, mc_game_resolution_x, mc_game_resolution_y, hide_on_process_start,\n                hook_pre_launch, hook_wrapper, hook_post_exit,\n                custom_dir, prev_custom_dir, migrated, json(feature_flags) feature_flags, toggle_sidebar,\n                skipped_update, pending_update_toast_for_version, auto_download_updates, accent_color, custom_accent_color,\n                custom_background_path, custom_background_blur, custom_background_opacity,\n                version\n            FROM settings\n            ",
   "describe": {
     "columns": [
       {
@@ -194,23 +194,28 @@
         "type_info": "Text"
       },
       {
-        "name": "custom_background_path",
+        "name": "custom_accent_color",
         "ordinal": 38,
         "type_info": "Text"
       },
       {
-        "name": "custom_background_blur",
+        "name": "custom_background_path",
         "ordinal": 39,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "custom_background_opacity",
+        "name": "custom_background_blur",
         "ordinal": 40,
         "type_info": "Integer"
       },
       {
-        "name": "version",
+        "name": "custom_background_opacity",
         "ordinal": 41,
+        "type_info": "Integer"
+      },
+      {
+        "name": "version",
+        "ordinal": 42,
         "type_info": "Integer"
       }
     ],
@@ -256,11 +261,12 @@
       true,
       true,
       false,
+      false,
       true,
       false,
       false,
       false
     ]
   },
-  "hash": "3dd0438b3626fbf541d4e28b5d690454b9b62a007f4316ae94e8d55dced0a81f"
+  "hash": "e753d81743b1ade5de2b7eb54300ca37d9b5fb30cc9c144c3a485d02fd7f051a"
 }
