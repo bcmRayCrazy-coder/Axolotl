@@ -134,11 +134,11 @@
   "app.appearance-settings.accent-color.custom": {
     "message": "Custom"
   },
-  "app.appearance-settings.accent-color.custom.title": {
-    "message": "Custom Accent Color"
-  },
   "app.appearance-settings.accent-color.custom.description": {
     "message": "Select an accent color"
+  },
+  "app.appearance-settings.accent-color.custom.title": {
+    "message": "Custom Accent Color"
   },
   "app.appearance-settings.accent-color.description": {
     "message": "Choose the color used for buttons, selections, and highlights."
@@ -1505,6 +1505,9 @@
   "app.settings.about.project-website": {
     "message": "Visit the project website"
   },
+  "app.settings.about.qq-group": {
+    "message": "Player QQ group"
+  },
   "app.settings.about.test-error": {
     "message": "Trigger test error"
   },
@@ -1516,9 +1519,6 @@
   },
   "app.settings.about.test-notification-error-title": {
     "message": "Test notification error"
-  },
-  "app.settings.about.qq-group": {
-    "message": "Player QQ group"
   },
   "app.settings.about.version": {
     "message": "Version {version}"

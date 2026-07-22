@@ -55,6 +55,24 @@ export const DEFAULT_THEME_STORE: ThemeStore = {
 	featureFlags: DEFAULT_FEATURE_FLAGS,
 }
 
+function hexToRgb(hex: string) {
+	hex = hex.replace(/^#/, '')
+
+	if (hex.length === 3) {
+		hex = hex
+			.split('')
+			.map((char) => char + char)
+			.join('')
+	}
+
+	const bigint = parseInt(hex, 16)
+	const r = (bigint >> 16) & 255
+	const g = (bigint >> 8) & 255
+	const b = bigint & 255
+
+	return { r, g, b }
+}
+
 export const useTheming = defineStore('themeStore', {
 	state: () => DEFAULT_THEME_STORE,
 	actions: {
@@ -79,6 +97,24 @@ export const useTheming = defineStore('themeStore', {
 				html.classList.remove(`accent-${accentColor}`)
 			}
 			html.classList.add(`accent-${this.selectedAccentColor}`)
+		},
+		setCustomAccentColor(customColorHex: string) {
+			const html = document.documentElement
+			let customStyle = html.querySelector('#custom_style')
+			if (!customStyle) {
+				customStyle = document.createElement('style')
+				customStyle.id = 'custom_style'
+				html.appendChild(customStyle)
+			}
+
+			// const customColorHex = '#ffffff'
+			const customColor = hexToRgb(customColorHex)
+
+			customStyle.innerHTML = `.accent-custom {
+			--color-brand: ${customColorHex};
+			--color-brand-highlight: rgba(${customColor.r}, ${customColor.g}, ${customColor.b}, 0.25);
+			--color-brand-shadow: color-mix(in srgb, ${customColorHex} 68%, transparent);
+			}`
 		},
 		setThemeClass() {
 			const html = document.getElementsByTagName('html')[0]

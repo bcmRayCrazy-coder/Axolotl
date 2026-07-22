@@ -154,7 +154,7 @@ impl Settings {
                 mc_memory_max, mc_force_fullscreen, mc_game_resolution_x, mc_game_resolution_y, hide_on_process_start,
                 hook_pre_launch, hook_wrapper, hook_post_exit,
                 custom_dir, prev_custom_dir, migrated, json(feature_flags) feature_flags, toggle_sidebar,
-                skipped_update, pending_update_toast_for_version, auto_download_updates, accent_color,
+                skipped_update, pending_update_toast_for_version, auto_download_updates, accent_color, custom_accent_color,
                 custom_background_path, custom_background_blur, custom_background_opacity,
                 version
             FROM settings
@@ -183,8 +183,9 @@ impl Settings {
             legacy_use_modrinth_mirror: None,
             legacy_use_curseforge_mirror: None,
             theme: Theme::from_string(&res.theme),
-            custom_accent_color: String::from("#ffffff"),
+            // custom_accent_color: String::from("#0077ff"),
             accent_color: AccentColor::from_string(&res.accent_color),
+            custom_accent_color: res.custom_accent_color,
             locale: res.locale,
             default_page: DefaultPage::from_string(&res.default_page),
             collapsed_navigation: res.collapsed_navigation == 1,
@@ -249,6 +250,7 @@ impl Settings {
             self.max_concurrent_downloads.clamp(1, 64) as i32;
         let theme = self.theme.as_str();
         let accent_color = self.accent_color.as_str();
+        let custom_accent_color = self.custom_accent_color.as_str();
         let default_page = self.default_page.as_str();
         let extra_launch_args = serde_json::to_string(&self.extra_launch_args)?;
         let custom_env_vars = serde_json::to_string(&self.custom_env_vars)?;
@@ -327,7 +329,9 @@ impl Settings {
                 curseforge_source = $42,
                 use_minecraft_mirror = $43,
                 use_modrinth_mirror = $44,
-                use_curseforge_mirror = $45
+                use_curseforge_mirror = $45,
+
+				custom_accent_color = $46
             ",
             max_concurrent_writes,
             max_concurrent_downloads,
@@ -374,6 +378,7 @@ impl Settings {
             use_minecraft_mirror,
             use_modrinth_mirror,
             use_curseforge_mirror,
+            custom_accent_color
         )
         .execute(exec)
         .await?;

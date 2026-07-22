@@ -2,6 +2,7 @@
 import { CheckIcon, ImageIcon, TrashIcon, UploadIcon } from '@modrinth/assets'
 import {
 	ButtonStyled,
+	ColorInput,
 	Combobox,
 	defineMessages,
 	injectNotificationManager,
@@ -10,7 +11,6 @@ import {
 	ThemeSelector,
 	Toggle,
 	useVIntl,
-	StyledInput,
 } from '@modrinth/ui'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { appDataDir, join } from '@tauri-apps/api/path'
@@ -306,6 +306,14 @@ watch(
 )
 
 watch(
+	() => settings.value.custom_accent_color,
+	(color) => {
+		themeStore.setCustomAccentColor(color)
+	},
+	{ immediate: true },
+)
+
+watch(
 	settings,
 	async () => {
 		await set(settings.value)
@@ -373,7 +381,6 @@ watch(
 			</button>
 		</div>
 		<div v-if="settings.accent_color === 'custom'" class="mt-6 flex items-center justify-between">
-			<!-- TODO: -->
 			<div>
 				<h2 class="m-0 text-lg font-semibold text-contrast">
 					{{ formatMessage(messages.accentColorCustomTitle) }}
@@ -383,23 +390,7 @@ watch(
 				</p>
 			</div>
 
-			<StyledInput
-				id="customAccentColor"
-				v-model="settings.custom_accent_color"
-				autocomplete="off"
-				type="color"
-				:placeholder="'#ffffff'"
-			/>
-			<!-- <Toggle
-				id="advanced-rendering"
-				:model-value="themeStore.advancedRendering"
-				@update:model-value="
-					(e) => {
-						themeStore.advancedRendering = !!e
-						settings.advanced_rendering = themeStore.advancedRendering
-					}
-				"
-			/> -->
+			<ColorInput id="customAccentColor" v-model="settings.custom_accent_color" />
 		</div>
 	</div>
 
