@@ -1192,7 +1192,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		/>
 		<UnknownPackWarningModal ref="unknownPackWarningModal" />
 		<div
-			class="app-grid-navbar bg-bg-raised flex flex-col p-[0.5rem] pt-0 gap-[0.5rem] w-[--left-bar-width]"
+			class="app-grid-navbar bg-bg-raised flex flex-col p-[0.5rem] pt-0 gap-[0.5rem] w-[--left-bar-width] overflow-hidden"
 		>
 			<NavButton v-tooltip.right="formatMessage(messages.home)" to="/">
 				<HomeIcon />
@@ -1243,7 +1243,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				</span>
 			</NavButton>
 			<div class="h-px w-6 mx-auto my-2 bg-surface-5"></div>
-			<div class="flex-grow min-h-0 overflow-y-auto">
+			<div class="flex-1 min-h-0 overflow-y-auto">
 				<suspense>
 					<QuickInstanceSwitcher />
 				</suspense>
@@ -1255,7 +1255,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			>
 				<PlusIcon />
 			</NavButton>
-			<div class="flex flex-grow"></div>
 			<NavButton
 				v-tooltip.right="formatMessage(commonMessages.settingsLabel)"
 				:to="() => $refs.settingsModal.show()"
@@ -1396,9 +1395,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			class="app-sidebar mt-px shrink-0 flex flex-col border-0 border-l-[1px] border-[--brand-gradient-border] border-solid"
 		>
 			<div
-				v-overlay-scrollbars="sidebarOverlayScrollbarsOptions"
-				class="app-sidebar-scrollable flex-grow shrink relative"
-				data-overlayscrollbars-initialize
+				class="app-sidebar-scrollable flex-grow shrink overflow-y-auto"
 			>
 				<div id="sidebar-teleport-target" class="sidebar-teleport-content"></div>
 				<div class="sidebar-default-content" :class="{ 'sidebar-enabled': sidebarVisible }">
