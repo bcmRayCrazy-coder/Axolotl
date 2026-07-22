@@ -535,24 +535,29 @@ fn legacy_download_source(enabled: bool) -> DownloadSourceMode {
 }
 
 /// Accent color used for interactive controls and highlights.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// Serialized as a plain string: either a preset name (`pink`, `orange`, ...)
+/// or `custom:#rrggbb` for a user-defined color. Unknown values fall back to
+/// [`AccentColor::Pink`], keeping older builds forward-compatible.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccentColor {
     Pink,
     Orange,
     Green,
     Blue,
     Purple,
+    Custom(String),
 }
 
 impl AccentColor {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             AccentColor::Pink => "pink",
             AccentColor::Orange => "orange",
             AccentColor::Green => "green",
             AccentColor::Blue => "blue",
             AccentColor::Purple => "purple",
+            AccentColor::Custom(value) => value,
         }
     }
 
@@ -562,8 +567,41 @@ impl AccentColor {
             "green" => AccentColor::Green,
             "blue" => AccentColor::Blue,
             "purple" => AccentColor::Purple,
-            _ => AccentColor::Pink,
+            other => match Self::parse_custom(other) {
+                Some(custom) => custom,
+                None => AccentColor::Pink,
+            },
         }
+    }
+
+    fn parse_custom(string: &str) -> Option<AccentColor> {
+        let hex = string.strip_prefix("custom:#")?;
+        if hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            Some(AccentColor::Custom(format!(
+                "custom:#{}",
+                hex.to_ascii_lowercase()
+            )))
+        } else {
+            None
+        }
+    }
+}
+
+impl Serialize for AccentColor {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AccentColor {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Ok(AccentColor::from_string(&value))
     }
 }
 
