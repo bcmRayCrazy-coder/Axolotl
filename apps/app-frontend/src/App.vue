@@ -385,6 +385,7 @@ async function setupApp() {
 		custom_background_path,
 		custom_background_blur,
 		custom_background_opacity,
+		sidebar_instance_count,
 		developer_mode,
 		feature_flags,
 		pending_update_toast_for_version,
@@ -429,6 +430,7 @@ async function setupApp() {
 	themeStore.customBackgroundPath = custom_background_path
 	themeStore.customBackgroundBlur = custom_background_blur
 	themeStore.customBackgroundOpacity = custom_background_opacity
+	themeStore.sidebarInstanceCount = sidebar_instance_count
 	themeStore.devMode = developer_mode
 	themeStore.featureFlags = feature_flags
 	stateInitialized.value = true
@@ -1291,7 +1293,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		/>
 		<UnknownPackWarningModal ref="unknownPackWarningModal" />
 		<div
-			class="app-grid-navbar bg-bg-raised flex flex-col p-[0.5rem] pt-0 gap-[0.5rem] w-[--left-bar-width]"
+			class="app-grid-navbar bg-bg-raised flex flex-col p-[0.5rem] pt-0 gap-[0.5rem] w-[--left-bar-width] overflow-hidden"
 		>
 			<NavButton v-tooltip.right="formatMessage(messages.home)" to="/">
 				<HomeIcon />
@@ -1349,9 +1351,11 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				</span>
 			</NavButton>
 			<div class="h-px w-6 mx-auto my-2 bg-surface-5"></div>
-			<suspense>
-				<QuickInstanceSwitcher />
-			</suspense>
+			<div class="flex-1 min-h-0 overflow-y-auto">
+				<suspense>
+					<QuickInstanceSwitcher />
+				</suspense>
+			</div>
 			<NavButton
 				v-tooltip.right="formatMessage(messages.createInstance)"
 				data-onboarding-id="create-instance"
@@ -1360,7 +1364,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			>
 				<PlusIcon />
 			</NavButton>
-			<div class="flex flex-grow"></div>
 			<NavButton
 				v-tooltip.right="formatMessage(commonMessages.settingsLabel)"
 				data-onboarding-id="nav-settings"
