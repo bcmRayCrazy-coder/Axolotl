@@ -56,6 +56,10 @@ export const launcherAnnouncements: readonly LauncherAnnouncement[] = [
 			],
 			changed: [
 				{
+					'en-US': 'Improved the update settings version history with clearer release cards and details.',
+					'zh-CN': '优化更新设置中的版本历史，提供更清晰的发布卡片和详情展示。',
+				},
+				{
 					'en-US':
 						'The sidebar instance list now scrolls independently when it exceeds the available space.',
 					'zh-CN': '侧边栏实例列表超出可用空间时，现在可以独立滚动。',

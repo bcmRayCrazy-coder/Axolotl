@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Accordion, defineMessages, useVIntl } from '@modrinth/ui'
+import { CalendarIcon, HistoryIcon } from '@modrinth/assets'
+import { Accordion, defineMessages, TagItem, useVIntl } from '@modrinth/ui'
 import { computed } from 'vue'
 
 import {
@@ -65,34 +66,37 @@ const historyAnnouncements = computed(() =>
 		</div>
 
 		<div class="flex min-w-0 flex-col gap-3">
-			<h3 class="m-0 text-base font-semibold text-contrast">
+			<h3 class="m-0 flex items-center gap-2 text-base font-semibold text-contrast">
+				<HistoryIcon aria-hidden="true" class="size-4 text-secondary" />
 				{{ formatMessage(messages.history) }}
 			</h3>
 			<p v-if="historyAnnouncements.length === 0" class="m-0 text-sm text-secondary">
 				{{ formatMessage(messages.empty) }}
 			</p>
-			<div
-				v-else
-				class="divide-y divide-solid divide-surface-5 border-y border-solid border-surface-5"
-			>
+			<div v-else class="flex min-w-0 flex-col gap-2">
 				<Accordion
 					v-for="announcement in historyAnnouncements"
 					:key="announcement.id"
-					class="min-w-0"
-					button-class="group flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-0 py-4 text-left"
-					content-class="pb-5"
+					class="min-w-0 overflow-hidden rounded-lg border border-solid border-surface-5 bg-surface-4 transition-colors hover:border-surface-4 focus-within:border-surface-4"
+					button-class="group flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-4 py-3 text-left"
 				>
 					<template #title>
-						<span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
-							<span class="truncate font-semibold text-primary group-hover:text-contrast">
-								{{ getLocalizedAnnouncementText(announcement.title, locale) }}
-							</span>
-							<time class="text-sm font-normal text-secondary" :datetime="announcement.publishedAt">
-								{{ announcement.publishedAt }}
-							</time>
-						</span>
+						<div class="flex min-w-0 flex-1 items-center gap-3">
+							<div class="flex min-w-0 flex-1 flex-col gap-1">
+								<span class="truncate font-semibold text-primary transition-colors group-hover:text-contrast">
+									{{ getLocalizedAnnouncementText(announcement.title, locale) }}
+								</span>
+								<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-secondary">
+									<TagItem class="px-1.5 py-0.5 text-xs">v{{ announcement.version }}</TagItem>
+									<span class="flex items-center gap-1">
+										<CalendarIcon aria-hidden="true" class="size-3.5" />
+										<time :datetime="announcement.publishedAt">{{ announcement.publishedAt }}</time>
+									</span>
+								</div>
+							</div>
+						</div>
 					</template>
-					<div class="border-0 border-t border-solid border-surface-5 pt-5">
+					<div class="border-0 border-t border-solid border-surface-5 bg-surface-3 px-4 py-5">
 						<UpdateAnnouncementContent
 							:announcement="announcement"
 							:show-header="false"
