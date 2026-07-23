@@ -1229,9 +1229,9 @@ fn install_error_code(
             PreparingJava => "java_error",
             _ => "metadata_error",
         },
-        ErrorKind::FetchError(_) | ErrorKind::ApiIsDownError(_) => {
-            "network_error"
-        }
+        ErrorKind::FetchError(_)
+        | ErrorKind::NetworkError(_)
+        | ErrorKind::ApiIsDownError(_) => "network_error",
         ErrorKind::Any(_)
             if matches!(
                 phase,
@@ -1292,5 +1292,23 @@ fn modpack_details(location: &CreatePackLocation) -> InstallPhaseDetails {
             version_id: None,
             title: None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stalled_downloads_are_reported_as_network_errors() {
+        let error: crate::Error = crate::ErrorKind::NetworkError(
+            "no data received for 60 seconds".to_string(),
+        )
+        .into();
+
+        assert_eq!(
+            install_error_code(InstallPhaseId::DownloadingMinecraft, &error),
+            "network_error"
+        );
     }
 }

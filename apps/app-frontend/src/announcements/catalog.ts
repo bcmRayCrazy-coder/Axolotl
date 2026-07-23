@@ -44,8 +44,34 @@ export const launcherAnnouncements: readonly LauncherAnnouncement[] = [
 			added: [
 				{
 					'en-US':
+						'Added an appearance setting to limit the number of recent instances shown in the sidebar, with 0 showing all instances.',
+					'zh-CN': '新增外观设置，可限制侧边栏显示的最近实例数量，设为 0 时显示全部实例。',
+				},
+				{
+					'en-US':
 						'Added custom accent colors with a preset palette, hue slider, hex input, and automatic light and dark theme variants.',
-					'zh-CN': '新增自定义强调色，支持预设色板、色相滑块、十六进制色号及自动生成浅色和深色主题变体。',
+					'zh-CN':
+						'新增自定义强调色，支持预设色板、色相滑块、十六进制色号及自动生成浅色和深色主题变体。',
+				},
+			],
+			changed: [
+				{
+					'en-US':
+						'The sidebar instance list now scrolls independently when it exceeds the available space.',
+					'zh-CN': '侧边栏实例列表超出可用空间时，现在可以独立滚动。',
+				},
+			],
+			fixed: [
+				{
+					'en-US':
+						'Fixed the quick instance switcher failing to render when the instance list could not be loaded.',
+					'zh-CN': '修复实例列表加载失败时快速实例切换器无法显示的问题。',
+				},
+				{
+					'en-US':
+						'Fixed local modpack installs appearing stuck at 100% and hanging when a Minecraft file download stops receiving data.',
+					'zh-CN':
+						'修复本地整合包安装在 100% 后看似卡住，以及 Minecraft 文件下载停止接收数据时任务无法结束的问题。',
 				},
 			],
 		},

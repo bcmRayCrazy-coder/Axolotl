@@ -3,13 +3,17 @@ use super::model::{
     InstallJobState, InstallPhaseDetails, InstallPhaseId, InstallProgress,
 };
 use super::store;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const PROGRESS_PERSIST_INTERVAL: Duration = Duration::from_millis(750);
 const CONTENT_PROGRESS_PERSIST_STEPS: u64 = 25;
+
+static REPORTER_STATES: LazyLock<
+    dashmap::DashMap<Uuid, Weak<Mutex<InstallProgressReporterState>>>,
+> = LazyLock::new(dashmap::DashMap::new);
 
 #[derive(Clone, Debug)]
 pub struct InstallProgressReporter {
@@ -22,17 +26,42 @@ struct InstallProgressReporterState {
     job: InstallJobState,
     last_persisted_at: Instant,
     last_persisted_progress: Option<(InstallPhaseId, u64)>,
+    initialized_from_store: bool,
 }
 
 impl InstallProgressReporter {
     pub fn new(job_id: Uuid, state: InstallJobState) -> Self {
+        let shared_state = match REPORTER_STATES.entry(job_id) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                if let Some(state) = entry.get().upgrade() {
+                    state
+                } else {
+                    let state =
+                        Arc::new(Mutex::new(InstallProgressReporterState {
+                            job: state,
+                            last_persisted_at: Instant::now(),
+                            last_persisted_progress: None,
+                            initialized_from_store: false,
+                        }));
+                    entry.insert(Arc::downgrade(&state));
+                    state
+                }
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                let state =
+                    Arc::new(Mutex::new(InstallProgressReporterState {
+                        job: state,
+                        last_persisted_at: Instant::now(),
+                        last_persisted_progress: None,
+                        initialized_from_store: false,
+                    }));
+                entry.insert(Arc::downgrade(&state));
+                state
+            }
+        };
         Self {
             job_id,
-            state: Arc::new(Mutex::new(InstallProgressReporterState {
-                job: state,
-                last_persisted_at: Instant::now(),
-                last_persisted_progress: None,
-            })),
+            state: shared_state,
         }
     }
 
@@ -64,6 +93,19 @@ impl InstallProgressReporter {
         self.update_context(None, true).await
     }
 
+    async fn sync_latest(
+        &self,
+        state: &mut InstallProgressReporterState,
+        app_state: &crate::State,
+    ) -> crate::Result<()> {
+        if !state.initialized_from_store {
+            state.job =
+                store::get_required(self.job_id, app_state).await?.state;
+            state.initialized_from_store = true;
+        }
+        Ok(())
+    }
+
     async fn update_context(
         &self,
         context: Option<InstallErrorContext>,
@@ -75,6 +117,9 @@ impl InstallProgressReporter {
             None
         };
         let mut state = self.state.lock().await;
+        if let Some(app_state) = &app_state {
+            self.sync_latest(&mut state, app_state).await?;
+        }
         state.job.set_context(context);
 
         let Some(app_state) = app_state else {
@@ -90,6 +135,7 @@ impl InstallProgressReporter {
     pub async fn persist(&self) -> crate::Result<InstallJobSnapshot> {
         let app_state = crate::State::get().await?;
         let mut state = self.state.lock().await;
+        self.sync_latest(&mut state, &app_state).await?;
 
         let record =
             store::update_state(self.job_id, &state.job, &app_state).await?;
@@ -114,6 +160,7 @@ impl InstallProgressReporter {
     ) -> crate::Result<()> {
         let app_state = crate::State::get().await?;
         let mut state = self.state.lock().await;
+        self.sync_latest(&mut state, &app_state).await?;
         state
             .job
             .record_event(InstallJobEventKind::DownloadMetrics {
@@ -149,6 +196,7 @@ impl InstallProgressReporter {
     ) -> crate::Result<()> {
         let app_state = crate::State::get().await?;
         let mut state = self.state.lock().await;
+        self.sync_latest(&mut state, &app_state).await?;
         let phase_started = state.job.progress.phase != phase
             || matches!(
                 &state.job.progress.details,
@@ -235,4 +283,29 @@ pub async fn emit_install_job(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::install::InstallRequest;
+    use crate::state::{InstanceLink, ModLoader};
+
+    #[test]
+    fn separately_created_reporters_share_job_state() {
+        let job_id = Uuid::new_v4();
+        let state = InstallJobState::new(InstallRequest::CreateInstance {
+            name: "Test".to_string(),
+            game_version: "1.21.1".to_string(),
+            loader: ModLoader::Vanilla,
+            loader_version: None,
+            icon_path: None,
+            link: InstanceLink::Unmanaged,
+        });
+
+        let first = InstallProgressReporter::new(job_id, state.clone());
+        let second = InstallProgressReporter::new(job_id, state);
+
+        assert!(Arc::ptr_eq(&first.state, &second.state));
+    }
 }

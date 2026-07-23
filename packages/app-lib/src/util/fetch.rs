@@ -37,10 +37,24 @@ const MCIM_BASE_URL: &str = "https://mod.mcimirror.top";
 const METADATA_ATTEMPT_BUDGET: usize = 4;
 const SEGMENTED_DOWNLOAD_THRESHOLD: u64 = 1024 * 1024;
 const MAX_REDIRECT_LOCATION_BYTES: usize = 8 * 1024;
-const FILE_TRANSFER_READ_TIMEOUT: time::Duration =
+const FILE_TRANSFER_CONNECT_TIMEOUT: time::Duration =
     time::Duration::from_secs(15);
-const FILE_TRANSFER_SLOW_INTERVAL: time::Duration =
-    time::Duration::from_secs(5);
+const FILE_TRANSFER_READ_TIMEOUT: time::Duration =
+    time::Duration::from_secs(65);
+#[cfg(not(test))]
+const FILE_TRANSFER_FIRST_BYTE_TIMEOUT: time::Duration =
+    time::Duration::from_secs(30);
+#[cfg(test)]
+const FILE_TRANSFER_FIRST_BYTE_TIMEOUT: time::Duration =
+    time::Duration::from_millis(250);
+#[cfg(not(test))]
+const FILE_TRANSFER_IDLE_TIMEOUT: time::Duration =
+    time::Duration::from_secs(60);
+#[cfg(test)]
+const FILE_TRANSFER_IDLE_TIMEOUT: time::Duration =
+    time::Duration::from_millis(250);
+const FILE_TRANSFER_PROGRESS_LOG_INTERVAL: time::Duration =
+    time::Duration::from_secs(15);
 const MIRROR_REQUEST_START_INTERVAL: time::Duration =
     time::Duration::from_millis(100);
 
@@ -760,7 +774,7 @@ static MIRROR_REQUEST_SLOTS: LazyLock<AsyncMutex<[Instant; 2]>> =
 
 fn reqwest_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
-        .connect_timeout(time::Duration::from_secs(15))
+        .connect_timeout(FILE_TRANSFER_CONNECT_TIMEOUT)
         .read_timeout(FILE_TRANSFER_READ_TIMEOUT)
         .tcp_keepalive(Some(time::Duration::from_secs(10)))
         .tcp_nodelay(true)
@@ -2052,6 +2066,21 @@ async fn send_path_request(
     range_start: Option<u64>,
     range_end: Option<u64>,
 ) -> crate::Result<(reqwest::Response, String)> {
+    #[cfg(test)]
+    {
+        return send_path_request_with_clients(
+            route,
+            custom_header,
+            credentials,
+            download_meta,
+            range_start,
+            range_end,
+            &INSECURE_REQWEST_CLIENT,
+            &INSECURE_REQWEST_CLIENT,
+        )
+        .await;
+    }
+    #[cfg(not(test))]
     send_path_request_with_clients(
         route,
         custom_header,
@@ -2228,18 +2257,40 @@ async fn download_segment(
         SegmentRequestKind::Range => (Some(range.start), None),
     };
     let request_started = Instant::now();
-    let (response, final_url) = send_path_request_with_clients(
-        route,
-        custom_header,
-        credentials,
-        download_meta,
-        range_start,
-        range_end,
-        system_client,
-        direct_client,
+    let (response, final_url) = tokio::time::timeout(
+        FILE_TRANSFER_FIRST_BYTE_TIMEOUT,
+        send_path_request_with_clients(
+            route,
+            custom_header,
+            credentials,
+            download_meta,
+            range_start,
+            range_end,
+            system_client,
+            direct_client,
+        ),
     )
     .await
+    .map_err(|_| {
+        tracing::warn!(
+            path = %part_path.display(),
+            url = %sanitize_url_for_log(&route.url),
+            source = route.source.as_str(),
+            no_data_seconds = FILE_TRANSFER_FIRST_BYTE_TIMEOUT.as_secs_f64(),
+            downloaded_bytes = 0,
+            "No response received before download timeout"
+        );
+        SegmentDownloadError::Transport
+    })?
     .map_err(|_| SegmentDownloadError::Transport)?;
+    tracing::debug!(
+        path = %part_path.display(),
+        url = %sanitize_url_for_log(&route.url),
+        source = route.source.as_str(),
+        status = response.status().as_u16(),
+        content_length = response.content_length(),
+        "Received download range response"
+    );
     let response_is_valid = match request_kind {
         SegmentRequestKind::Initial => {
             response.status().is_success()
@@ -2270,29 +2321,58 @@ async fn download_segment(
     let mut stream = response.bytes_stream();
     let mut pending_progress = 0_u64;
     let mut last_chunk_at = Instant::now();
-    while let Some(chunk) = stream.next().await {
+    let mut downloaded = 0_u64;
+    let mut progress_log =
+        tokio::time::interval(FILE_TRANSFER_PROGRESS_LOG_INTERVAL);
+    progress_log
+        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    progress_log.tick().await;
+    loop {
+        let idle_timeout = if downloaded == 0 {
+            FILE_TRANSFER_FIRST_BYTE_TIMEOUT
+        } else {
+            FILE_TRANSFER_IDLE_TIMEOUT
+        };
+        let deadline =
+            tokio::time::Instant::from_std(last_chunk_at + idle_timeout);
+        let chunk = tokio::select! {
+            item = stream.next() => {
+                let Some(chunk) = item else {
+                    break;
+                };
+                chunk
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                tracing::warn!(
+                    path = %part_path.display(),
+                    url = %sanitize_url_for_log(&route.url),
+                    source = route.source.as_str(),
+                    no_data_seconds = idle_timeout.as_secs_f64(),
+                    downloaded_bytes = downloaded,
+                    "No data received before download range timeout"
+                );
+                return Err(SegmentDownloadError::Transport);
+            }
+            _ = progress_log.tick() => {
+                tracing::debug!(
+                    path = %part_path.display(),
+                    url = %sanitize_url_for_log(&route.url),
+                    source = route.source.as_str(),
+                    downloaded_bytes = downloaded,
+                    seconds_since_last_data = last_chunk_at.elapsed().as_secs_f64(),
+                    "Download range is still in progress"
+                );
+                continue;
+            }
+        };
         let chunk = chunk.map_err(|_| SegmentDownloadError::Transport)?;
         let (accepted, completed) = range.accept_chunk(chunk.len());
         file.write_all(&chunk[..accepted]).await.map_err(|error| {
             SegmentDownloadError::Fatal(IOError::with_path(error, &path).into())
         })?;
-        let elapsed = last_chunk_at.elapsed();
         pending_progress += accepted as u64;
+        downloaded += accepted as u64;
         DOWNLOAD_MANAGER.record_bytes(accepted as u64);
-        if range.remaining() > 0
-            && elapsed > FILE_TRANSFER_SLOW_INTERVAL
-            && (accepted as u128) < elapsed.as_millis()
-        {
-            tracing::warn!(
-                url = %route.url,
-                range_start = range.start,
-                range_end = range.end(),
-                bytes = accepted,
-                elapsed_ms = elapsed.as_millis(),
-                "Ending a stalled download range"
-            );
-            return Err(SegmentDownloadError::Transport);
-        }
         last_chunk_at = Instant::now();
         if pending_progress >= 256 * 1024 {
             let _ = progress.send(pending_progress);
@@ -2636,8 +2716,10 @@ pub async fn download_to_path(
                 attempts += 1;
                 tracing::debug!(
                     path = %destination.display(),
+                    temporary_path = %part_path.display(),
                     url = %log_url,
                     source = route.source.as_str(),
+                    expected_bytes = request.integrity.size,
                     attempt = attempts,
                     max_attempts = file_attempt_budget,
                     "Starting file download attempt"
@@ -2671,6 +2753,16 @@ pub async fn download_to_path(
                                 result.size,
                                 result.transfer_elapsed,
                             );
+                            tracing::debug!(
+                                path = %destination.display(),
+                                url = %sanitize_url_for_log(&result.final_url),
+                                source = route.source.as_str(),
+                                bytes = result.size,
+                                elapsed_ms = result.transfer_elapsed.as_millis(),
+                                attempt = attempts,
+                                max_attempts = file_attempt_budget,
+                                "Completed file download"
+                            );
                             return Ok(DownloadResult {
                                 path: destination.to_path_buf(),
                                 url: result.final_url,
@@ -2691,11 +2783,19 @@ pub async fn download_to_path(
                         SegmentedDownloadOutcome::SourceFailed => {
                             record_route_failure(route);
                             last_error = Some(
-                                ErrorKind::OtherError(format!(
+                                ErrorKind::NetworkError(format!(
                                     "File transfer failed from {}",
                                     log_url
                                 ))
                                 .into(),
+                            );
+                            tracing::warn!(
+                                path = %destination.display(),
+                                url = %log_url,
+                                source = route.source.as_str(),
+                                attempt = attempts,
+                                max_attempts = file_attempt_budget,
+                                "Segmented file download failed; retrying or switching source"
                             );
                             remove_if_exists(&part_path).await?;
                             break;
@@ -2708,20 +2808,54 @@ pub async fn download_to_path(
 
                 let permit = semaphore.0.acquire().await?;
                 let request_started = Instant::now();
-                let (response, final_url) = match send_path_request(
-                    route,
-                    request.header.as_ref(),
-                    credentials.as_ref(),
-                    request.download_meta.as_ref(),
-                    None,
-                    None,
+                let (response, final_url) = match tokio::time::timeout(
+                    FILE_TRANSFER_FIRST_BYTE_TIMEOUT,
+                    send_path_request(
+                        route,
+                        request.header.as_ref(),
+                        credentials.as_ref(),
+                        request.download_meta.as_ref(),
+                        None,
+                        None,
+                    ),
                 )
                 .await
                 {
-                    Ok(response) => response,
-                    Err(error) => {
+                    Ok(Ok(response)) => response,
+                    Ok(Err(error)) => {
                         drop(permit);
                         record_route_failure(route);
+                        tracing::warn!(
+                            path = %destination.display(),
+                            url = %log_url,
+                            source = route.source.as_str(),
+                            attempt = attempts,
+                            max_attempts = file_attempt_budget,
+                            error = %error,
+                            "File download request failed; trying the next source or retry"
+                        );
+                        last_error = Some(error);
+                        break;
+                    }
+                    Err(_) => {
+                        drop(permit);
+                        record_route_failure(route);
+                        let error = ErrorKind::NetworkError(format!(
+                            "no response received for {:.0} seconds while downloading {log_url} to {}",
+                            FILE_TRANSFER_FIRST_BYTE_TIMEOUT.as_secs_f64(),
+                            destination.display(),
+                        ))
+                        .into();
+                        tracing::warn!(
+                            path = %destination.display(),
+                            url = %log_url,
+                            source = route.source.as_str(),
+                            no_data_seconds = FILE_TRANSFER_FIRST_BYTE_TIMEOUT.as_secs_f64(),
+                            downloaded_bytes = 0,
+                            attempt = attempts,
+                            max_attempts = file_attempt_budget,
+                            "File download stalled before receiving a response"
+                        );
                         last_error = Some(error);
                         break;
                     }
@@ -2731,7 +2865,9 @@ pub async fn download_to_path(
                 tracing::debug!(
                     path = %destination.display(),
                     url = %log_url,
+                    source = route.source.as_str(),
                     status = status.as_u16(),
+                    content_length = response.content_length(),
                     ttfb_ms = ttfb.as_millis(),
                     "Received file download response"
                 );
@@ -2763,7 +2899,64 @@ pub async fn download_to_path(
                 let mut stream = response.bytes_stream();
                 let mut transfer_error: Option<crate::Error> = None;
                 let mut last_chunk_at = Instant::now();
-                while let Some(item) = stream.next().await {
+                let mut progress_log =
+                    tokio::time::interval(FILE_TRANSFER_PROGRESS_LOG_INTERVAL);
+                progress_log.set_missed_tick_behavior(
+                    tokio::time::MissedTickBehavior::Delay,
+                );
+                progress_log.tick().await;
+                loop {
+                    let idle_timeout = if downloaded == starting_size {
+                        FILE_TRANSFER_FIRST_BYTE_TIMEOUT
+                    } else {
+                        FILE_TRANSFER_IDLE_TIMEOUT
+                    };
+                    let deadline = tokio::time::Instant::from_std(
+                        last_chunk_at + idle_timeout,
+                    );
+                    let item = tokio::select! {
+                        item = stream.next() => {
+                            let Some(item) = item else {
+                                break;
+                            };
+                            item
+                        }
+                        _ = tokio::time::sleep_until(deadline) => {
+                            tracing::warn!(
+                                path = %destination.display(),
+                                temporary_path = %part_path.display(),
+                                url = %log_url,
+                                source = route.source.as_str(),
+                                no_data_seconds = idle_timeout.as_secs_f64(),
+                                downloaded_bytes = downloaded.saturating_sub(starting_size),
+                                attempt = attempts,
+                                max_attempts = file_attempt_budget,
+                                "File download stalled: no data received"
+                            );
+                            transfer_error = Some(
+                                ErrorKind::NetworkError(format!(
+                                    "no data received for {:.0} seconds while downloading {log_url} to {} ({} bytes received)",
+                                    idle_timeout.as_secs_f64(),
+                                    destination.display(),
+                                    downloaded.saturating_sub(starting_size),
+                                ))
+                                .into(),
+                            );
+                            break;
+                        }
+                        _ = progress_log.tick() => {
+                            tracing::debug!(
+                                path = %destination.display(),
+                                url = %log_url,
+                                source = route.source.as_str(),
+                                downloaded_bytes = downloaded.saturating_sub(starting_size),
+                                expected_bytes = total_size,
+                                seconds_since_last_data = last_chunk_at.elapsed().as_secs_f64(),
+                                "File download is still in progress"
+                            );
+                            continue;
+                        }
+                    };
                     let chunk = match item {
                         Ok(chunk) => chunk,
                         Err(error) => {
@@ -2775,29 +2968,8 @@ pub async fn download_to_path(
                         IOError::with_path(error, &part_path)
                     })?;
                     hashers.update(&chunk);
-                    let elapsed = last_chunk_at.elapsed();
                     downloaded += chunk.len() as u64;
                     DOWNLOAD_MANAGER.record_bytes(chunk.len() as u64);
-                    if !retry_with_single_thread
-                        && downloaded > starting_size + chunk.len() as u64
-                        && elapsed > FILE_TRANSFER_SLOW_INTERVAL
-                        && (chunk.len() as u128) < elapsed.as_millis()
-                    {
-                        tracing::warn!(
-                            path = %destination.display(),
-                            url = %log_url,
-                            bytes = chunk.len(),
-                            elapsed_ms = elapsed.as_millis(),
-                            "Ending a stalled file download"
-                        );
-                        transfer_error = Some(
-                            ErrorKind::OtherError(
-                                "file transfer stalled".to_string(),
-                            )
-                            .into(),
-                        );
-                        break;
-                    }
                     last_chunk_at = Instant::now();
                     if let Some(progress) = progress.as_mut() {
                         progress(downloaded, total_size).await?;
@@ -2811,6 +2983,16 @@ pub async fn download_to_path(
 
                 if let Some(error) = transfer_error {
                     record_route_failure(route);
+                    remove_if_exists(&part_path).await?;
+                    tracing::warn!(
+                        path = %destination.display(),
+                        url = %log_url,
+                        source = route.source.as_str(),
+                        attempt = attempts,
+                        max_attempts = file_attempt_budget,
+                        error = %error,
+                        "File download attempt failed; trying the next source or retry"
+                    );
                     last_error = Some(error);
                     break;
                 }
@@ -2862,6 +3044,7 @@ pub async fn download_to_path(
         }
     }
 
+    remove_if_exists(&part_path).await?;
     Err(last_error.unwrap_or_else(|| {
         ErrorKind::OtherError(format!(
             "Unable to download {} from any source",
@@ -3192,6 +3375,79 @@ mod tests {
         )
     }
 
+    async fn spawn_stream_server(
+        chunks: Vec<(Duration, Vec<u8>)>,
+        content_length: usize,
+        hold_open: bool,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let chunks = Arc::new(chunks);
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let chunks = Arc::clone(&chunks);
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0_u8; 1024];
+                    loop {
+                        let Ok(read) = stream.read(&mut buffer).await else {
+                            return;
+                        };
+                        if read == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..read]);
+                        if request
+                            .windows(4)
+                            .any(|window| window == b"\r\n\r\n")
+                        {
+                            break;
+                        }
+                    }
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {content_length}\r\nConnection: close\r\n\r\n"
+                    );
+                    if stream.write_all(headers.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    for (delay, chunk) in chunks.iter() {
+                        tokio::time::sleep(*delay).await;
+                        if stream.write_all(chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                    if hold_open {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
+                });
+            }
+        });
+        (format!("http://{address}/file"), handle)
+    }
+
+    async fn test_download(
+        url: &str,
+        destination: &Path,
+        expected_size: u64,
+    ) -> crate::Result<DownloadResult> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        download_to_path(
+            DownloadRequest::new(url, ResourceClass::Other)
+                .with_integrity(Integrity::default().with_size(expected_size)),
+            destination,
+            &FetchSemaphore(Semaphore::new(2)),
+            &pool,
+            None,
+        )
+        .await
+    }
+
     #[test]
     fn modrinth_requests_are_classified_for_logging() {
         assert_eq!(
@@ -3205,6 +3461,79 @@ mod tests {
             Some("CDN")
         );
         assert_eq!(modrinth_request_kind("https://example.com/file.jar"), None);
+    }
+
+    #[tokio::test]
+    async fn file_download_times_out_when_a_successful_response_stalls() {
+        let _guard = RANGE_SPLITTING_TEST_LOCK.lock().await;
+        let (url, server) = spawn_stream_server(Vec::new(), 4, true).await;
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("stalled.bin");
+
+        let error = test_download(&url, &destination, 4).await.unwrap_err();
+
+        assert!(matches!(error.raw.as_ref(), ErrorKind::NetworkError(_)));
+        assert!(!destination.exists());
+        assert!(!suffixed_path(&destination, ".part").exists());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn file_download_allows_data_that_keeps_arriving_slowly() {
+        let _guard = RANGE_SPLITTING_TEST_LOCK.lock().await;
+        let chunks = (0..4)
+            .map(|byte| (Duration::from_millis(100), vec![byte]))
+            .collect();
+        let (url, server) = spawn_stream_server(chunks, 4, false).await;
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("slow.bin");
+
+        let result = test_download(&url, &destination, 4).await.unwrap();
+
+        assert_eq!(result.size, 4);
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), [0, 1, 2, 3]);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn file_download_completes_normally() {
+        let _guard = RANGE_SPLITTING_TEST_LOCK.lock().await;
+        let (url, server) = spawn_stream_server(
+            vec![(Duration::ZERO, b"done".to_vec())],
+            4,
+            false,
+        )
+        .await;
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("complete.bin");
+
+        let result = test_download(&url, &destination, 4).await.unwrap();
+
+        assert_eq!(result.size, 4);
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"done");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn canceling_a_file_download_drops_the_response_read_promptly() {
+        let _guard = RANGE_SPLITTING_TEST_LOCK.lock().await;
+        let (url, server) = spawn_stream_server(Vec::new(), 4, true).await;
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("canceled.bin");
+        let task =
+            tokio::spawn(
+                async move { test_download(&url, &destination, 4).await },
+            );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task.abort();
+        let join_error = tokio::time::timeout(Duration::from_millis(100), task)
+            .await
+            .expect("canceled download should stop promptly")
+            .unwrap_err();
+
+        assert!(join_error.is_cancelled());
+        server.abort();
     }
 
     #[test]

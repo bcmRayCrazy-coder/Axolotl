@@ -92,7 +92,11 @@ When adding or materially changing a desktop app page, route, navigation entry, 
 Launcher release announcements are bundled with `apps/app-frontend` and shown after a completed app update and in Settings > Updates.
 
 - Add ordinary release announcements only to `apps/app-frontend/src/announcements/catalog.ts`; adding an entry must not require changes to `App.vue`, the updater, or the announcement components.
-- Give every release a new immutable ID in the form `launcher-<version>`, use the exact launcher version and ISO `YYYY-MM-DD` publication date, and place the newest release first. Never reuse an ID or change the meaning of a published entry.
+- Before editing the catalog, check the latest launcher version published on the remote through its GitHub release or tag. Do not infer the latest published version from the local package version or the newest catalog entry.
+- Use the next patch version after that remote release as the current unreleased announcement. For example, if the latest remote release is `1.4.0`, add changes to `launcher-1.4.1`; if that entry already exists locally, keep updating it until `1.4.1` is published remotely. Only begin `launcher-1.4.2` after the remote publishes `1.4.1`.
+- Never append new changes to an announcement that has already been published remotely.
+- After every code change or pull request merge, review the current unreleased announcement and add a concise user-facing entry for the change before considering the work complete. This applies to feature work, behavior changes, and bug fixes; do not treat release-note maintenance as optional or defer it to a later release.
+- Give every release a new immutable ID in the form `launcher-<version>`, use the exact launcher version and ISO `YYYY-MM-DD` publication date, and place the newest release first. Never reuse an ID, edit a published entry, or change its meaning.
 - Use only the Keep a Changelog categories `added`, `changed`, `deprecated`, `removed`, `fixed`, and `security`. Omit empty categories.
 - Provide both `en-US` and `zh-CN` text for the title and every change. Other locales intentionally fall back to English; do not copy announcement bodies into every locale JSON file.
 - Keep entries concise and user-facing. Describe observable features, behavior changes, removals, fixes, and security impact rather than implementation details.
@@ -102,7 +106,6 @@ Launcher release announcements are bundled with `apps/app-frontend` and shown af
 - Keep launcher release notes exclusively in the catalog. Do not create or maintain a separate `UPDATE_LOG.md` file.
 - The GitHub release workflow generates its release body from the matching catalog entry with `scripts/axolotl/create-release-notes.mjs`; a release tag without a catalog entry must fail preflight.
 - Local development builds expose a preview button in Settings > Updates. Use it to test the real announcement modal without changing onboarding or pending-update state; do not add per-version preview branches.
-- Run `pnpm prepr:frontend:app` after adding or changing an announcement.
 
 ## Project-Specific Instructions
 

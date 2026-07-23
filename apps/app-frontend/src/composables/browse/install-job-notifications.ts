@@ -20,6 +20,7 @@ import {
 	type InstallPhaseId,
 	type InstallProgress,
 } from '@/helpers/install'
+import { effectiveInstallProgress, hasDeterminateInstallProgress } from '@/helpers/install-progress'
 import { get_many as getInstances } from '@/helpers/instance'
 import type { DownloadManager } from '@/providers/download-manager'
 
@@ -386,7 +387,7 @@ export async function useInstallJobNotifications(opts: {
 	}
 
 	function getProgressType(job: InstallJobSnapshot): PopupNotificationProgressType | undefined {
-		if (!getEffectiveProgress(job)) return undefined
+		if (!hasDeterminateInstallProgress(getEffectiveProgress(job))) return undefined
 		if (
 			job.phase === 'preparing_java' &&
 			job.details.type === 'java' &&
@@ -411,18 +412,14 @@ export async function useInstallJobNotifications(opts: {
 	}
 
 	function getEffectiveProgress(job: InstallJobSnapshot): InstallProgress | null | undefined {
-		if (job.phase === 'downloading_content' && job.progress?.secondary) {
-			return job.progress.secondary
-		}
-
-		return job.progress
+		return effectiveInstallProgress(job)
 	}
 
 	function getProgress(job: InstallJobSnapshot): number {
 		if (job.status === 'succeeded') return 1
 		if (job.status === 'failed' || job.status === 'interrupted') return 0
 		const progress = getEffectiveProgress(job)
-		if (!progress || progress.total <= 0) return 0
+		if (!hasDeterminateInstallProgress(progress)) return 0
 		return Math.max(0, Math.min(1, progress.current / progress.total))
 	}
 
@@ -644,12 +641,19 @@ export async function useInstallJobNotifications(opts: {
 				text: getText(job),
 				iconUrl: iconUrls.value[job.job_id] ?? null,
 				progress: getProgress(job),
-				waiting: !job.progress && ['queued', 'running'].includes(job.status),
+				waiting:
+					['queued', 'running'].includes(job.status) && !hasDeterminateInstallProgress(progress),
 				showProgress: !isTerminalJob(job),
 				wrapText: isTerminalJob(job),
 				progressType: isTerminalJob(job) ? undefined : getProgressType(job),
-				progressCurrent: isTerminalJob(job) ? undefined : progress?.current,
-				progressTotal: isTerminalJob(job) ? undefined : progress?.total,
+				progressCurrent:
+					!isTerminalJob(job) && hasDeterminateInstallProgress(progress)
+						? progress.current
+						: undefined,
+				progressTotal:
+					!isTerminalJob(job) && hasDeterminateInstallProgress(progress)
+						? progress.total
+						: undefined,
 				buttons: getButtons(job),
 				onDismiss: isTerminalJob(job)
 					? async () => {

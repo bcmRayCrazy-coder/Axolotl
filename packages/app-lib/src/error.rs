@@ -76,6 +76,9 @@ pub enum ErrorKind {
     #[error("Error fetching URL: {0}")]
     FetchError(#[from] reqwest::Error),
 
+    #[error("Network download error: {0}")]
+    NetworkError(String),
+
     #[error("Too many API errors, try again in {0} minutes")]
     ApiIsDownError(u32),
 

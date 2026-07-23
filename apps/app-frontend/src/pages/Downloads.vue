@@ -183,7 +183,7 @@
 						:progress="jobPercent(job)"
 						:max="100"
 						:label="progressText(job)"
-						:waiting="job.status === 'queued'"
+						:waiting="job.status === 'queued' || !hasDeterminateProgress(job)"
 						show-progress
 					/>
 				</div>
@@ -320,6 +320,7 @@ import {
 	type InstallJobStatus,
 	type InstallPhaseId,
 } from '@/helpers/install'
+import { effectiveInstallProgress, hasDeterminateInstallProgress } from '@/helpers/install-progress'
 import type { LoadingBar } from '@/helpers/state'
 import { injectDownloadManager } from '@/providers/download-manager'
 
@@ -632,9 +633,13 @@ function showProgress(job: InstallJobSnapshot) {
 }
 
 function jobPercent(job: InstallJobSnapshot) {
-	const progress = job.progress?.secondary ?? job.progress
-	if (!progress?.total) return job.status === 'succeeded' ? 100 : 0
+	const progress = effectiveInstallProgress(job)
+	if (!hasDeterminateInstallProgress(progress)) return job.status === 'succeeded' ? 100 : 0
 	return Math.min(100, Math.max(0, Math.round((progress.current / progress.total) * 100)))
+}
+
+function hasDeterminateProgress(job: InstallJobSnapshot) {
+	return hasDeterminateInstallProgress(effectiveInstallProgress(job))
 }
 
 function progressText(job: InstallJobSnapshot) {
