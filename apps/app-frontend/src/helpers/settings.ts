@@ -71,10 +71,13 @@ export type AppSettings = {
 	custom_background_path: string | null
 	custom_background_blur: number
 	custom_background_opacity: number
+	sidebar_instance_count: number
 
 	telemetry: boolean
 	discord_rpc: boolean
 	onboarded: boolean
+	onboarding_version: number
+	onboarding_instance_tour_completed: boolean
 
 	extra_launch_args: string[]
 	custom_env_vars: [string, string][]

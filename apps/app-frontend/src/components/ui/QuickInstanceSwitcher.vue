@@ -2,37 +2,50 @@
 import { SpinnerIcon } from '@modrinth/assets'
 import { injectNotificationManager } from '@modrinth/ui'
 import dayjs from 'dayjs'
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 
 import InstanceIcon from '@/components/ui/InstanceIcon.vue'
 import NavButton from '@/components/ui/NavButton.vue'
 import { instance_listener } from '@/helpers/events.js'
 import { list } from '@/helpers/instance'
+import { useTheming } from '@/store/state'
 
 const { handleError } = injectNotificationManager()
 
-const recentInstances = ref([])
+const themeStore = useTheming()
+
+const fullInstanceList = ref([])
+const instanceCount = computed(() => themeStore.sidebarInstanceCount)
+
+const recentInstances = computed(() => {
+	if (instanceCount.value > 0) {
+		return fullInstanceList.value.slice(0, instanceCount.value)
+	}
+	return fullInstanceList.value
+})
+
 const getInstances = async () => {
-	const instances = await list().catch(handleError)
+	const instances = await list().catch((error) => {
+		handleError(error)
+		return []
+	})
 
-	recentInstances.value = instances
-		.sort((a, b) => {
-			const dateACreated = dayjs(a.created)
-			const dateAPlayed = a.last_played ? dayjs(a.last_played) : dayjs(0)
+	fullInstanceList.value = instances.sort((a, b) => {
+		const dateACreated = dayjs(a.created)
+		const dateAPlayed = a.last_played ? dayjs(a.last_played) : dayjs(0)
 
-			const dateBCreated = dayjs(b.created)
-			const dateBPlayed = b.last_played ? dayjs(b.last_played) : dayjs(0)
+		const dateBCreated = dayjs(b.created)
+		const dateBPlayed = b.last_played ? dayjs(b.last_played) : dayjs(0)
 
-			const dateA = dateACreated.isAfter(dateAPlayed) ? dateACreated : dateAPlayed
-			const dateB = dateBCreated.isAfter(dateBPlayed) ? dateBCreated : dateBPlayed
+		const dateA = dateACreated.isAfter(dateAPlayed) ? dateACreated : dateAPlayed
+		const dateB = dateBCreated.isAfter(dateBPlayed) ? dateBCreated : dateBPlayed
 
-			if (dateA.isSame(dateB)) {
-				return a.name.localeCompare(b.name)
-			}
+		if (dateA.isSame(dateB)) {
+			return a.name.localeCompare(b.name)
+		}
 
-			return dateB - dateA
-		})
-		.slice(0, 3)
+		return dateB - dateA
+	})
 }
 
 await getInstances()
