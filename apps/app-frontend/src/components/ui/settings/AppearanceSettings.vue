@@ -214,8 +214,7 @@ const messages = defineMessages({
 	},
 	sidebarInstanceCountDescription: {
 		id: 'app.appearance-settings.sidebar-instance-count.description',
-		defaultMessage:
-			'Maximum number of instances to show in the sidebar. Set to 0 to show all.',
+		defaultMessage: 'Maximum number of instances to show in the sidebar. Set to 0 to show all.',
 	},
 })
 
